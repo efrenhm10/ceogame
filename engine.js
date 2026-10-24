@@ -2,7 +2,7 @@
 (function (G) {
   'use strict';
   const D = G.GC_DATA;
-  const { CITIES, COMMODITIES, SUPPLIER_TYPES, INDUSTRIES, BACKGROUNDS, ROUNDS, MONTHS } = D;
+  const { CITIES, COMMODITIES, SUPPLIER_TYPES, INDUSTRIES, BACKGROUNDS, ROUNDS, MONTHS, MKT_CHANNELS, MKT_PRESETS, ACCOUNTS, STOREFRONTS, WEBSTORE, FARM_INPUTS, FARM_NAMES, TIERS, UPGRADES } = D;
   const cityById = Object.fromEntries(CITIES.map(c => [c.id, c]));
   const indById = Object.fromEntries(INDUSTRIES.map(i => [i.id, i]));
   const START_YEAR = 2027;
@@ -129,14 +129,14 @@
       name: opts.name, ind: ind.id, city: city.id, founded: s.month, isFounder: !!opts.isFounder,
       cash: 0, ar: 0, ap: 0, loans: [], fx: [], acc: newAcc(),
       facilities: [], products: {}, regions: regionDefs(city).map((r, i) => Object.assign(r, { unlocked: i === 0, aw: i === 0 ? 0.05 : 0, reach: i === 0 ? (ind.reach.init || 0) : 0 })),
-      assets: [], emergencyBuy: true, mats: {}, staff: { ops: 0, sales: 0, rd: 0, support: 0, ga: 0 }, payPolicy: 1.0, morale: 70, autoBackfill: true,
+      assets: [], emergencyBuy: true, mkt: {}, accounts: {}, acctCool: {}, web: false, stores: [], farms: {}, tier: {}, mats: {}, staff: { ops: 0, sales: 0, rd: 0, support: 0, ga: 0 }, payPolicy: 1.0, morale: 70, autoBackfill: true,
       marketing: 0, rdPts: 0, nol: 0, hist: [], bufferWeeks: 2,
       shares: { total: 10e6, ceo: opts.isFounder ? 10e6 : 0, investors: [] }, board: { seats: 0, conf: 65, expect: 0 },
       public: false, sentiment: 1, sharePrice: 0, rounds: [], cooldown: 0, sbaUsed: false, termSheet: null,
       owned: {}, milestones: {}, lastReport: null, crisis: null, fundedBy: 0
     };
     for (const p of ind.products) {
-      co.products[p.id] = { active: p.unlock === 0 || p.market, unlocked: !p.unlock, price: Math.round((p.price || 0) * s.macro.cpi * 100) / 100, q: p.q0 || 50, fc: 0, fg: 0, fgVal: 0, customers: 0, dem: 0, sold: 0, lost: 0, prod: 0, rev: 0 };
+      co.products[p.id] = { active: p.unlock === 0 || p.market, unlocked: !p.unlock, price: Math.round((p.price || 0) * s.macro.cpi * 100) / 100, q: p.q0 || 50, qBonus: 0, bomMult: 1, demandMult: 1, homeMult: 1, projects: {}, done: [], fc: 0, fg: 0, fgVal: 0, customers: 0, dem: 0, sold: 0, lost: 0, prod: 0, rev: 0 };
     }
     for (const c of usedCommodities(ind)) {
       co.mats[c] = { qty: 0, val: 0, sup: defaultSupplier(c, city), cover: defaultCover(c), contract: null, orders: [], usage: 0 };
@@ -252,11 +252,13 @@
     const cm = COMMODITIES[c];
     const types = cm.src.split('').filter(Boolean);
     if (co.owned[c]) types.unshift('V');
+    if (co.farms && co.farms[c]) types.unshift('F');
     return types;
   }
   function supplierTerms(s, co, c, type) {
     const city = cityById[co.city], cm = COMMODITIES[c];
     const spot = s.prices[c];
+    if (type === 'F') { const f = co.farms[c]; return { label: 'Partner farm', price: f.price * s.macro.cpi / f.cpi, lead: 0, rel: 0.995, terms: 'net30', name: 'Partner ' + f.name + ' (up to ' + Math.round(f.cap).toLocaleString('en-US') + ' ' + cm.unit + '/mo)', cap: f.cap }; }
     if (type === 'V') return { label: 'Your own supplier', price: spot * 0.82 * (city.id === 'honolulu' ? 1.06 : 1), lead: 1, rel: 1, terms: 'net30', name: 'In-house subsidiary' };
     const T = SUPPLIER_TYPES[type];
     let mult = T.mult, lead = T.lead, rel = T.rel;
@@ -267,22 +269,104 @@
     const name = type === 'L' ? names[0] : type === 'D' ? names[1] : type === 'O' ? names[2] : 'Spot market';
     return { label: T.label, price: spot * mult, lead, rel: clamp(rel, 0.3, 1), terms: T.terms, name: name || T.label };
   }
-  function buyPrice(s, co, c) {
+  function buyPrice(s, co, c, sup) {
     const m = co.mats[c];
-    if (m.contract && m.contract.until >= s.month) return m.contract.price;
-    return supplierTerms(s, co, c, m.sup).price;
+    const tm = COMMODITIES[c].stock === false ? 1 : tierOf(co, c).mult;
+    if (!sup && m.contract && m.contract.until >= s.month) return m.contract.price / (m.contract.tm || 1) * tm;
+    return supplierTerms(s, co, c, sup || m.sup).price * tm;
   }
   function lockContract(s, co, c) {
     const m = co.mats[c];
-    const price = supplierTerms(s, co, c, m.sup).price * 1.03;
-    m.contract = { price, until: s.month + 11, sup: m.sup };
+    const tm = COMMODITIES[c].stock === false ? 1 : tierOf(co, c).mult;
+    const price = supplierTerms(s, co, c, m.sup).price * tm * 1.03;
+    m.contract = { price, until: s.month + 11, sup: m.sup, tm };
     return price;
+  }
+  // ---------- Farm & producer partnerships ----------
+  function farmInputs(co) {
+    const list = new Set([...(FARM_INPUTS[co.city] || FARM_INPUTS._all)]);
+    return [...list].filter(c => co.mats[c]);
+  }
+  function farmDeal(s, co, c) {
+    const m = co.mats[c];
+    const use = Math.max(m.usage || 0, 200);
+    return { invest: Math.round((use * s.prices[c] * 6 + 12000) / 1000) * 1000, cap: use * 1.3, price: s.prices[c] * 1.08, name: FARM_NAMES[c] || 'local producer' };
+  }
+  function partnerFarm(s, co, c) {
+    const d = farmDeal(s, co, c);
+    if (co.cash < d.invest) return 'Not enough cash for the partnership investment.';
+    co.cash -= d.invest; co.acc.expansion += d.invest;
+    co.farms[c] = { since: s.month, cap: d.cap, price: d.price, cpi: s.macro.cpi, name: d.name };
+    co.mats[c].prevSup = co.mats[c].sup; co.mats[c].sup = 'F';
+    return null;
+  }
+  function expandFarm(s, co, c) {
+    const f = co.farms[c]; if (!f) return;
+    const cost = Math.round((f.cap * s.prices[c] * 4 + 10000) / 1000) * 1000;
+    if (co.cash < cost) return 'Not enough cash.';
+    co.cash -= cost; co.acc.expansion += cost; f.cap *= 2;
+    return null;
+  }
+  function endFarm(co, c) { delete co.farms[c]; const m = co.mats[c]; m.sup = m.prevSup && m.prevSup !== 'F' ? m.prevSup : defaultSupplier(c, cityById[co.city]); }
+
+  // ---------- Compatibility (older saves, companies built before these systems) ----------
+  function compat(co) {
+    for (const k of ['mkt', 'accounts', 'acctCool', 'farms', 'tier']) if (!co[k]) co[k] = {};
+    if (!co.stores) co.stores = [];
+    if (co.web == null) co.web = false;
+    for (const ps of Object.values(co.products)) { if (ps.qBonus == null) Object.assign(ps, { qBonus: 0, bomMult: 1, demandMult: 1, homeMult: 1, projects: {}, done: [] }); }
+    const sum = Object.values(co.mkt).reduce((a, x) => a + x, 0);
+    if (Math.abs(sum - co.marketing) > 1) {
+      if (sum > 0) { const f = co.marketing / sum; for (const k of Object.keys(co.mkt)) co.mkt[k] *= f; }
+      else if (co.marketing > 0) applyPreset(co, defaultPreset(co), co.marketing);
+    }
+  }
+  function defaultPreset(co) { const ind = indById[co.ind]; return ind.b2b ? 'b2b' : ind.reach.channels ? 'local' : 'local'; }
+  function channelsFor(co) {
+    const ind = indById[co.ind];
+    if (ind.reach.mode === 'none') return [];
+    return MKT_CHANNELS.filter(c => !(ind.b2b && c.consumer));
+  }
+  function setMkt(co, ch, amt) { co.mkt[ch] = Math.max(0, Math.round(amt)); co.marketing = Object.values(co.mkt).reduce((a, x) => a + x, 0); }
+  function applyPreset(co, id, total) {
+    const pr = MKT_PRESETS[id]; if (!pr) return;
+    const allowed = new Set(channelsFor(co).map(c => c.id));
+    const mix = Object.entries(pr.mix).filter(([k]) => allowed.has(k));
+    const w = mix.reduce((a, [, v]) => a + v, 0) || 1;
+    co.mkt = {};
+    for (const [k, v] of mix) co.mkt[k] = Math.round(total * v / w);
+    co.marketing = Object.values(co.mkt).reduce((a, x) => a + x, 0);
+  }
+
+  // ---------- Ingredient grades & product quality ----------
+  const PACKAGING = new Set(['film', 'carton', 'jars', 'alcan', 'glass', 'co2']);
+  function tierOf(co, c) { return TIERS[co.tier[c] || 'standard'] || TIERS.standard; }
+  function bomOf(co, p) {
+    const ps = co.products[p.id], out = {};
+    for (const [c, q] of Object.entries(p.bom || {})) out[c] = q * (COMMODITIES[c].stock === false ? 1 : (ps.bomMult || 1));
+    return out;
+  }
+  // quality contributed by ingredient choices and farm partners, weighted by each input's share of material cost
+  function ingredientQ(co, p) {
+    let w = 0, q = 0;
+    for (const [c, qty] of Object.entries(p.bom || {})) {
+      const cm = COMMODITIES[c];
+      if (cm.stock === false) continue;
+      const wt = qty * cm.base * (PACKAGING.has(c) ? 0.5 : 1);
+      w += wt;
+      q += wt * (tierOf(co, c).q + (co.farms[c] ? 6 : 0));
+    }
+    return w > 0 ? q / w : 0;
+  }
+  function qEff(co, p) {
+    const ps = co.products[p.id];
+    return clamp(ps.q + (ps.qBonus || 0) + ingredientQ(co, p) + (co._prQ || 0), 5, 99);
   }
 
   // ---------- Demand model ----------
   function refPrice(s, co, p) { return (p.price || 1) * s.macro.cpi * fxMul(co, 'compPrice', f => !f.p || f.p === p.id); }
   function appeal(s, co, p, ps) {
-    const qF = 0.55 + 0.9 * ps.q / 100;
+    const qF = 0.55 + 0.9 * qEff(co, p) / 100;
     const pF = clamp(Math.pow(refPrice(s, co, p) / Math.max(0.01, ps.price), p.el || 1.5), 0.02, 2.5);
     return qF * pF;
   }
@@ -306,12 +390,18 @@
     co.regions.forEach((r, i) => {
       if (!r.unlocked) { byR.push(0); return; }
       const pot = regionPot(s, co, p, r, i, opts && opts.offset);
-      let d = pot * r.aw * r.reach * a * ind.shareCap;
+      let d = pot * r.aw * r.reach * a * ind.shareCap * (ps.demandMult || 1) * (i <= 1 ? homeMult(co, p) : 1) * (co._searchLift || 1);
       d = Math.min(d, pot * 0.45);
       byR.push(d); tot += d;
     });
     const mult = fxMul(co, 'demand', f => !f.p || f.p === p.id);
     return { tot: tot * mult, byR: byR.map(x => x * mult) };
+  }
+  // "made locally" claims: upgrades plus farm partners for the product's inputs lift home-market demand
+  function homeMult(co, p) {
+    let m = co.products[p.id].homeMult || 1;
+    for (const c of Object.keys(p.bom || {})) if (co.farms[c]) m *= 1.05;
+    return Math.min(m, 1.25);
   }
   function marketSize(s, co, p) {
     let tot = 0;
@@ -324,6 +414,14 @@
     if (!fcity || fcity.id === hq.id) return [1, hq.id === 'honolulu' ? 1.15 : 1.05, hq.nationalFreight * 1.08, hq.intlFreight * 1.3][i];
     if (i <= 1) return hq.id === 'honolulu' ? 1.6 : 1.08;
     return i === 2 ? fcity.nationalFreight : fcity.intlFreight * 1.3;
+  }
+
+  // freight cost multiplier to each market given where your capacity sits
+  function freightIndex(co) {
+    const city = cityById[co.city];
+    const caps = co.facilities.filter(f => f.status === 'active').map(f => ({ f, fd: facDef(co, f) })).filter(x => x.fd.cap);
+    const tot = caps.reduce((a, x) => a + x.fd.cap, 0);
+    return [0, 1, 2, 3].map(i => tot ? caps.reduce((a, x) => a + x.fd.cap / tot * (x.fd.offshore ? 1.15 * city.inbound : regionFreight(co, cityById[x.f.city], i)), 0) : regionFreight(co, null, i));
   }
 
   // ---------- Monthly simulation ----------
@@ -345,6 +443,7 @@
 
   function stepCompany(s, co, news) {
     const ind = indById[co.ind], city = cityById[co.city];
+    compat(co);
     co.fx = co.fx.filter(f => f.until >= s.month);
     const acc = co.acc;
     const prod = productivity(co);
@@ -396,17 +495,28 @@
       let base = ps.fc || 0;
       if (ps.prod > 0 && ps.lost > ps.sold * 0.05) base = Math.min(base, ps.prod * 1.2);
       const fcUnits = p.recurring ? 0 : base * (ind.storable ? 1 + co.bufferWeeks / 4.33 * 0.3 : 1);
-      for (const [c, q] of Object.entries(p.bom || {})) usageFc[c] = (usageFc[c] || 0) + fcUnits * q;
+      for (const [c, q] of Object.entries(bomOf(co, p))) usageFc[c] = (usageFc[c] || 0) + fcUnits * q;
     }
     for (const [c, m] of Object.entries(co.mats)) {
       const cm = COMMODITIES[c];
       if (cm.stock === false) continue;
       m.usage = usageFc[c] || 0;
       if (!m.usage) continue;
+      if (m.sup === 'F' && !co.farms[c]) m.sup = defaultSupplier(c, city);
       const t = supplierTerms(s, co, c, m.sup);
       const pipeline = m.qty + m.orders.reduce((a, o) => a + o.qty, 0);
       let qty = m.usage * (t.lead + 1 + m.cover) - pipeline;
       if (qty <= m.usage * 0.05) continue;
+      if (t.cap && qty > t.cap) {
+        // the partner farm can only grow so much; buy the rest from your usual supplier
+        const extra = qty - t.cap; qty = t.cap;
+        const alt = m.prevSup && m.prevSup !== 'F' ? m.prevSup : defaultSupplier(c, city);
+        const at = supplierTerms(s, co, c, alt), au = buyPrice(s, co, c, alt);
+        const eta2 = s.month + at.lead;
+        if (at.terms === 'prepay') { co.cash -= extra * au; }
+        if (eta2 <= s.month) { m.qty += extra; m.val += extra * au; if (at.terms === 'net30') apNew += extra * au; }
+        else m.orders.push({ qty: extra, unit: au, eta: eta2, terms: at.terms, sup: alt, placed: s.month });
+      }
       const unit = buyPrice(s, co, c);
       if (t.terms === 'prepay') {
         const maxAff = Math.max(0, co.cash - 0) / unit;
@@ -437,7 +547,7 @@
       opsUtil = crewNeed > 0 ? crewNeed / Math.max(0.01, co.staff.ops * prod) : 0;
       laborLimited = opsRatio < 0.999;
       const qp = co.products[ind.products[0].id];
-      const qf = 0.85 + 0.3 * qp.q / 100;
+      const qf = 0.85 + 0.3 * qEff(co, ind.products[0]) / 100;
       const capFx = fxMul(co, 'capacity');
       for (const p of ind.products) { st.units[p.id] = 0; st.revBy[p.id] = 0; }
       if (co.mats.natgas) co.mats.natgas.usage = 0;
@@ -517,7 +627,7 @@
       for (const pid of Object.keys(need)) plan[pid] = need[pid] * sfrac;
       // materials limits
       const req = {};
-      for (const p of activeProducts) if (plan[p.id]) for (const [c, q] of Object.entries(p.bom || {})) req[c] = (req[c] || 0) + plan[p.id] * q;
+      for (const p of activeProducts) if (plan[p.id]) for (const [c, q] of Object.entries(bomOf(co, p))) req[c] = (req[c] || 0) + plan[p.id] * q;
       const ratio = {};
       let expedite = 0;
       for (const [c, r] of Object.entries(req)) {
@@ -525,7 +635,7 @@
         const m = co.mats[c];
         if (co.emergencyBuy && m.qty < r) {
           // expedite the shortfall: local distributor or air freight at a steep premium, paid now
-          const unit = Math.max(...supplierOptions(s, co, c).filter(t => t !== 'V').map(t => supplierTerms(s, co, c, t).price)) * 1.4;
+          const unit = Math.max(...supplierOptions(s, co, c).filter(t => t !== 'V' && t !== 'F').map(t => supplierTerms(s, co, c, t).price)) * tierOf(co, c).mult * 1.4;
           const short = r - m.qty;
           const q = Math.min(short, Math.max(0, co.cash) / unit);
           if (q > 0) { m.qty += q; m.val += q * unit; co.cash -= q * unit; expedite += q * unit; m.expedited = (m.expedited || 0) + q; }
@@ -547,7 +657,7 @@
       for (const p of activeProducts) {
         matCostBy[p.id] = 0;
         if (!made[p.id]) continue;
-        for (const [c, q] of Object.entries(p.bom || {})) {
+        for (const [c, q] of Object.entries(bomOf(co, p))) {
           const used = made[p.id] * q;
           const m = co.mats[c];
           if (COMMODITIES[c].stock === false) {
@@ -600,12 +710,16 @@
         const fm = share.reduce((a, x, i) => a + x * rfm[i], 0);
         const varMult = (1 + (fm - 1) * (ind.freightShare || 0)) * (p.varEcon ? (1 + 1.5 * (1 - ECON[s.macro.econ].mult) / 0.12) : 1);
         st.cogsVar += soldUnits * p.var * s.macro.cpi * varMult;
-        // national big-box deal discount
+        // where each unit was sold decides the price you realize: retail accounts take a cut, your own
+        // stores and website sell at retail but carry their own costs
         const disc = fxList(co, 'natDiscount').reduce((a, f) => a * f.v, 1);
-        const natShare = share[2] || 0;
-        const rev = soldUnits * ps.price * (1 - natShare * (1 - disc));
+        let pm = 0, va = 0;
+        share.forEach((x, i) => { const ch = co.regions[i].chan; pm += x * (ch ? ch.pm : 1) * (i === 2 ? disc : 1); va += x * (ch ? ch.va : 0); });
+        const rev = soldUnits * ps.price * pm;
+        st.cogsVar += soldUnits * ps.price * va;
         ps.dem = d.tot; ps.sold = soldUnits; ps.lost = Math.max(0, d.tot - soldUnits); ps.prod = u; ps.rev = rev;
-        ps.unitCost = soldUnits > 0 ? (cogsMatSold != null ? cogsMatSold / soldUnits : unitCost) + p.var * s.macro.cpi * varMult + (p.kwh || 0) * elecAvg * staffShare : 0;
+        ps.unitCost = soldUnits > 0 ? (cogsMatSold != null ? cogsMatSold / soldUnits : unitCost) + p.var * s.macro.cpi * varMult + ps.price * va + (p.kwh || 0) * elecAvg * staffShare : 0;
+        ps.realized = pm * ps.price;
         ps.regionSold = share.map(x => x * soldUnits);
         st.rev += rev; st.revBy[p.id] = rev; st.units[p.id] = soldUnits;
         ps.fc = ps.fc * 0.5 + d.tot * 0.5;
@@ -630,7 +744,7 @@
       const target = d.tot;
       const gain = Math.max(0, target - ps.customers) * 0.12 * Math.exp(0.08 * randn(s));
       const priceChurn = Math.pow(Math.max(0.2, ps.price) / refPrice(s, co, p), 0.5);
-      const churnRate = p.recurring.churn * (1.7 - 1.4 * ps.q / 100) * (1 + 0.8 * supportShort) * (1 + 0.5 * opsShort) * priceChurn * fxMul(co, 'churn');
+      const churnRate = p.recurring.churn * (1.7 - 1.4 * qEff(co, p) / 100) * (1 + 0.8 * supportShort) * (1 + 0.5 * opsShort) * priceChurn * fxMul(co, 'churn');
       let churned = ps.customers * churnRate;
       if (ps.customers > target) churned += (ps.customers - target) * 0.04;
       ps.customers = Math.max(0, ps.customers + gain - churned);
@@ -682,14 +796,42 @@
     // marketing is spent where you are actually available: the reached population of each region
     const covered = (r) => Math.max(20000, r.pop * Math.max(r.reach, 0.02));
     const totW = co.regions.filter(r => r.unlocked).reduce((a, r) => a + Math.pow(covered(r), 0.85), 0);
-    const avgQ = activeProducts.length ? activeProducts.reduce((a, p) => a + co.products[p.id].q, 0) / activeProducts.length : 50;
+    const totW01 = co.regions.filter((r, i) => r.unlocked && i <= 1).reduce((a, r) => a + Math.pow(covered(r), 0.85), 0) || 1;
+    const avgQ = activeProducts.length ? activeProducts.reduce((a, p) => a + qEff(co, p), 0) / activeProducts.length : 50;
+    // each channel has diminishing returns; spreading money across channels works better than piling into one
+    const coveredAll = co.regions.filter(r => r.unlocked).reduce((a, r) => a + covered(r), 0);
+    let effAll = 0, effLocal = 0;
+    const satOf = (ch) => ch.sat * (3000 + 0.003 * coveredAll);
+    const chEff = {};
+    for (const ch of channelsFor(co)) {
+      const b = co.mkt[ch.id] || 0;
+      if (b <= 0) continue;
+      const S = satOf(ch);
+      const base = ind.b2b && ch.b2bBase ? ch.b2bBase : ch.base;
+      let e = base * S * Math.log(1 + b / S);
+      if (ch.min && b < ch.min) e *= 0.3;
+      chEff[ch.id] = 1 - Math.exp(-b / S);
+      if (ch.regions) effLocal += e; else effAll += e;
+    }
+    co._searchLift = 1 + 0.12 * (chEff.search || 0);
+    co._prQ = 4 * (chEff.pr || 0);
+    co._pitchBonus = 0.18 * (chEff.trade || 0) + 0.1 * (chEff.sampling || 0);
+    if ((co.mkt.influencer || 0) >= 1500 && !s.silent && activeProducts.length && rand(s) < 0.012 + co.mkt.influencer / 2e6) {
+      const vp = pick(s, activeProducts);
+      addFx(s, co, 'demand', 1.5, 1, { p: vp.id });
+      news(`A creator's video about your ${vp.name.toLowerCase()} took off. Demand is spiking.`, 'good', true);
+    }
+    // farmers markets, pop-ups and flagships also build awareness at home
+    for (const st0 of co.stores) { const sd = STOREFRONTS.find(x => x.id === st0.type); if (sd && sd.aw && co.regions[st0.region]) co.regions[st0.region].aw = Math.min(0.95, co.regions[st0.region].aw + sd.aw * 0.25); }
+    // own stores: pop-ups expire
+    co.stores = co.stores.filter(x => !(x.until != null && x.until < s.month));
     let coverPop = 0;
     if (ind.reach.mode === 'locations') for (const f of active) coverPop += facDef(co, f).cover || 0;
     co.regions.forEach((r, i) => {
       if (!r.unlocked || ind.reach.mode === 'none') return;
       const share = Math.pow(covered(r), 0.85) / totW;
       const popShare = r.pop / co.regions.filter(x => x.unlocked).reduce((a, x) => a + x.pop, 0);
-      const spend = co.marketing * share;
+      const spend = effAll * share + (i <= 1 ? effLocal * Math.pow(covered(r), 0.85) / totW01 : 0);
       const g = 1 - Math.exp(-spend / (ind.cpp * Math.pow(covered(r), 0.85)));
       let soldR = 0, potR = 0;
       for (const p of activeProducts) { const ps = co.products[p.id]; soldR += (ps.regionSold ? ps.regionSold[i] : 0) / (p.recurring ? 10 : 1); potR += regionPot(s, co, p, r, i) / (p.recurring ? 10 : 1); }
@@ -705,7 +847,29 @@
         r.reach += (tgt - r.reach) * 0.5;
       } else {
         const repsR = (i === 0 ? founderReps(s, co) : 0) + co.staff.sales * prod * popShare;
-        tgt = Math.min(ind.reach.max, (ind.reach.base || 0) + repsR * ind.reach.perRep / r.pop);
+        const comp = { reps: (ind.reach.base || 0) + repsR * ind.reach.perRep / r.pop * (1 + (co._pitchBonus || 0)) };
+        if (ind.reach.channels) {
+          const tour = 1 + city.tourism * s.macro.tourism * 0.8;
+          for (const id of Object.keys(co.accounts)) { const a = ACCOUNTS.find(x => x.id === id); if (a && a.region === i) comp['a:' + id] = a.cover * (a.tour && i <= 1 ? tour : 1); }
+          if (co.web) comp.web = 0.03 + 0.12 * r.aw;
+          let sc = 0;
+          for (const x of co.stores) if (x.region === i) sc += STOREFRONTS.find(y => y.id === x.type).cover;
+          if (sc) comp.stores = sc / r.pop;
+          // brokers and independent stores need less of your own sales force once chains carry you
+          comp.reps = Math.min(comp.reps, 0.5);
+        }
+        const raw = Object.values(comp).reduce((a, x) => a + x, 0);
+        tgt = Math.min(ind.reach.max, raw);
+        // realized price and extra variable cost depend on the channel mix
+        let pm = 0, va = 0, lag = 0;
+        for (const [k, v] of Object.entries(comp)) {
+          const w = raw > 0 ? v / raw : 0;
+          if (k === 'reps') pm += w;
+          else if (k === 'web') { pm += w * WEBSTORE.mult; va += w * WEBSTORE.varAdd * (co.city === 'honolulu' && i >= 2 ? 1.3 : 1); }
+          else if (k === 'stores') pm += w * 2.0;
+          else { const a = ACCOUNTS.find(x => 'a:' + x.id === k); pm += w * a.mult; va += w * (a.varAdd || 0); lag += w * (a.lag || 0); }
+        }
+        r.chan = { comp, raw, pm: raw > 0 ? pm : 1, va, lag };
         r.reach += (tgt - r.reach) * 0.25;
       }
     });
@@ -719,8 +883,42 @@
       if (!ps.active) continue;
       ps.q = clamp(ps.q + 0.6 * Math.sqrt(rdEff / nA) * (1 - ps.q / 100) - (ind.qDecay != null ? ind.qDecay : 0.15) - (opsShort > 0.3 ? 0.3 : 0), 15, 99);
     }
+    // product-development projects
+    const devSpeed = co.staff.rd > 0 ? Math.min(2, 1 + co.staff.rd / 20) : 0.5;
+    for (const p of ind.products) {
+      const ps = co.products[p.id];
+      for (const [uid2, left] of Object.entries(ps.projects || {})) {
+        const nl = left - devSpeed;
+        if (nl > 0) { ps.projects[uid2] = nl; continue; }
+        delete ps.projects[uid2];
+        const u = upgradesFor(co, p).find(x => x.id === uid2);
+        if (!u) continue;
+        ps.done.push(uid2);
+        ps.qBonus = (ps.qBonus || 0) + u.q;
+        if (u.mat) ps.bomMult = (ps.bomMult || 1) * u.mat;
+        if (u.demand) ps.demandMult = (ps.demandMult || 1) * u.demand;
+        if (u.demandHome) ps.homeMult = (ps.homeMult || 1) * u.demandHome;
+        if (!s.silent) news(`Product development: "${u.name}" is done for ${p.name.toLowerCase()} (+${u.q} quality).`, 'good');
+      }
+    }
     for (const p of ind.products) { const ps = co.products[p.id]; if (!ps.unlocked && p.unlock && co.rdPts >= p.unlock) { ps.unlocked = true; if (!s.silent) news(`R&D milestone: ${p.name} is ready to launch (one-time launch cost ${fmt$(p.launch || 0)}).`, 'good'); } }
 
+    // retail accounts can drop you for poor quality or empty shelves
+    if (ind.reach.channels && !s.silent && activeProducts.length) {
+      const bestQ = Math.max(...activeProducts.map(p => qEff(co, p)));
+      const demT = activeProducts.reduce((a, p) => a + (co.products[p.id].dem || 0), 0), lostT = activeProducts.reduce((a, p) => a + (co.products[p.id].lost || 0), 0);
+      for (const id of Object.keys(co.accounts)) {
+        const a = ACCOUNTS.find(x => x.id === id);
+        if (!a) continue;
+        if (bestQ < a.minQ - 6) { delete co.accounts[id]; co.acctCool[id] = s.month + 6; news(`${a.name} dropped your line: quality fell below what their shoppers expect.`, 'bad'); }
+        else if (demT > 0 && lostT / demT > 0.3 && a.slot > 0 && rand(s) < 0.25) { delete co.accounts[id]; co.acctCool[id] = s.month + 6; news(`${a.name} pulled you from the shelves after repeated out-of-stocks.`, 'bad'); }
+      }
+    }
+    let chanCost = 0;
+    for (const id of Object.keys(co.accounts)) { const a = ACCOUNTS.find(x => x.id === id); if (a) chanCost += a.fee; }
+    if (co.web) chanCost += WEBSTORE.monthly;
+    for (const x of co.stores) chanCost += STOREFRONTS.find(y => y.id === x.type).monthly * city.officeRent / 40;
+    chanCost *= s.macro.cpi;
     // 9. Overheads
     const officeHeads = headcount(co) - co.staff.ops + 1;
     const office = officeHeads * 175 * city.officeRent / 12 * s.macro.cpi;
@@ -752,7 +950,7 @@
     // 11. Statement
     const cogs = st.cogsMat + st.cogsToll + st.cogsEnergy + st.cogsVar + st.cogsRoy + st.cogsLabor + st.cogsSite + st.cogsSpoil + st.cogsFuel;
     const oneTime = acc.recruit + acc.severance + acc.launch + acc.expansion + acc.events;
-    const opex = otherPay + co.marketing + office + gaOther + grt + regionUpkeep + oneTime;
+    const opex = otherPay + co.marketing + office + gaOther + grt + regionUpkeep + oneTime + chanCost;
     const ebitda = st.rev - cogs - opex;
     const ebit = ebitda - dep;
     const ebt = ebit - interest + acc.otherInc;
@@ -766,7 +964,11 @@
     const ni = ebt - tax;
 
     // 12. Cash
-    const lag = clamp(ind.lag + fxAdd(co, 'lag'), 0, 2);
+    // retail chains pay slower than farmers-market shoppers: weight each market's payment lag by what sold there
+    const soldBy = [0, 1, 2, 3].map(i => activeProducts.reduce((a, p) => a + ((co.products[p.id].regionSold || [])[i] || 0) * (co.products[p.id].price || 0), 0));
+    const soldTot = soldBy.reduce((a, x) => a + x, 0);
+    const chanLag = soldTot > 0 ? co.regions.reduce((a, r, i) => a + (r.chan ? r.chan.lag : 0) * soldBy[i] / soldTot, 0) : 0;
+    const lag = clamp(ind.lag + fxAdd(co, 'lag') + chanLag, 0, 2);
     const arPrev = co.ar;
     const arNew = st.rev * Math.min(1, lag) + (lag > 1 ? st.rev * (lag - 1) : 0);
     const collections = st.rev - arNew + arPrev;
@@ -774,7 +976,7 @@
     const apPrev = co.ap;
     co.ap = apNew;
     // contract-manufacturing fees are paid in cash when units are made (capitalized into inventory for storable goods)
-    const cashCosts = st.cogsEnergy + st.cogsVar + st.cogsRoy + st.cogsLabor + st.cogsSite + tollPaid + otherPay + co.marketing + office + gaOther + grt + regionUpkeep;
+    const cashCosts = st.cogsEnergy + st.cogsVar + st.cogsRoy + st.cogsLabor + st.cogsSite + tollPaid + otherPay + co.marketing + office + gaOther + grt + regionUpkeep + chanCost;
     co.cash += collections - apPrev - cashCosts - interest - principal - tax;
     co.cash += acc.otherInc;
     s.ceo.cash += s.ceo.salary / 12 * 0.68;
@@ -787,7 +989,7 @@
     const debt = co.loans.reduce((a, l) => a + l.bal, 0);
 
     const h = Object.assign(st, {
-      m: s.month, cogs, gp: st.rev - cogs, opPay: otherPay, opMkt: co.marketing, opOffice: office, opGA: gaOther + regionUpkeep, opGRT: grt, opOne: oneTime,
+      m: s.month, cogs, gp: st.rev - cogs, opPay: otherPay, opMkt: co.marketing, opChan: chanCost, opOffice: office, opGA: gaOther + regionUpkeep, opGRT: grt, opOne: oneTime,
       oneDetail: { recruit: acc.recruit, severance: acc.severance, launch: acc.launch, expansion: acc.expansion, events: acc.events },
       opex, ebitda, dep, ebit, interest, otherInc: acc.otherInc, ebt, tax, ni, cash: co.cash, debt, ar: co.ar, ap: co.ap, inv: invVal, ppe,
       capex: acc.capex, principal, heads: headcount(co), morale: co.morale, opsUtil, capUtil, laborLimited, capLimited, matLimited: Object.keys(matLimited), quits
@@ -959,6 +1161,64 @@
     if (co.cash < cost) return 'Not enough cash.';
     co.cash -= cost; co.acc.expansion += cost;
     r.unlocked = true; r.aw = Math.max(r.aw, 0.005); r.reach = Math.max(r.reach, ind.reach.mode === 'sales' ? Math.min(ind.reach.base || 0.02, 0.6) : 0);
+    return null;
+  }
+
+  // ---------- Sales channels, stores, product development ----------
+  function accountsFor(co) { return ACCOUNTS.filter(a => a.inds.includes(co.ind)); }
+  function pitchOdds(s, co, a) {
+    const ind = indById[co.ind];
+    const r = co.regions[a.region];
+    const bestQ = Math.max(0, ...ind.products.filter(p => co.products[p.id].active).map(p => qEff(co, p)));
+    if (bestQ < a.minQ) return 0;
+    const qEdge = (bestQ - a.minQ) / 40;
+    return clamp(a.chance * (0.65 + r.aw * 1.6 + qEdge + Math.min(0.25, co.staff.sales * 0.03) + (co._pitchBonus || 0)), 0.05, 0.95);
+  }
+  function pitchAccount(s, co, id) {
+    const a = ACCOUNTS.find(x => x.id === id);
+    if (!a || co.accounts[id]) return { err: 'Already carried there.' };
+    if (!co.regions[a.region].unlocked) return { err: 'Enter that market first.' };
+    if ((co.acctCool[id] || 0) > s.month) return { err: 'The buyer will not take another meeting yet.' };
+    const odds = pitchOdds(s, co, a);
+    if (odds <= 0) return { err: 'The buyer needs higher quality than you offer.' };
+    const slot = a.slot * s.macro.cpi;
+    if (co.cash < slot) return { err: `You need ${fmt$(slot)} for slotting and onboarding.` };
+    if (rand(s) < odds) {
+      co.cash -= slot; co.acc.expansion += slot;
+      co.accounts[id] = { since: s.month };
+      return { ok: true, msg: `${a.name} agreed to carry you${slot ? ` (${fmt$(slot)} in slotting and onboarding)` : ''}.` };
+    }
+    co.acctCool[id] = s.month + 3;
+    return { ok: false, msg: `${a.name} passed for now. ${a.minQ > 55 ? 'Buyers mentioned quality and brand awareness.' : 'They want to see more brand awareness.'} You can pitch again in three months.` };
+  }
+  function dropAccount(co, id) { delete co.accounts[id]; }
+  function toggleWeb(s, co) {
+    if (co.web) { co.web = false; return null; }
+    const c = WEBSTORE.setup * s.macro.cpi;
+    if (co.cash < c) return 'Not enough cash.';
+    co.cash -= c; co.acc.expansion += c; co.web = true; return null;
+  }
+  function openStore(s, co, type, region) {
+    const sd = STOREFRONTS.find(x => x.id === type);
+    if (!co.regions[region] || !co.regions[region].unlocked) return 'Enter that market first.';
+    const c = sd.capex * s.macro.cpi * cityById[co.city].officeRent / 40;
+    if (co.cash < c) return 'Not enough cash.';
+    co.cash -= c; co.acc.expansion += c;
+    co.stores.push({ type, region, opened: s.month, until: sd.months ? s.month + sd.months - 1 : null });
+    return null;
+  }
+  function closeStore(co, idx) { co.stores.splice(idx, 1); }
+  function setTier(co, c, tier) { if (TIERS[tier]) co.tier[c] = tier; }
+  function upgradesFor(co, p) { return (UPGRADES[p.id] || []).concat(UPGRADES['_' + co.ind] || []); }
+  function startProject(s, co, pid, uid2) {
+    const p = indById[co.ind].products.find(x => x.id === pid), ps = co.products[pid];
+    const u = upgradesFor(co, p).find(x => x.id === uid2);
+    if (!u || ps.done.includes(uid2) || ps.projects[uid2]) return 'Already done or under way.';
+    if (u.rd && co.rdPts < u.rd) return `Needs ${u.rd} R&D points first.`;
+    const c = u.cost * s.macro.cpi;
+    if (co.cash < c) return 'Not enough cash.';
+    co.cash -= c; co.acc.launch += c;
+    ps.projects[uid2] = u.months;
     return null;
   }
 
@@ -1302,6 +1562,8 @@
         co.regions.forEach(r => { if (r.unlocked) reps += Math.max(0, (r.reach - (ind.reach.base || 0))) * r.pop / ind.reach.perRep; });
         co.staff.sales = Math.ceil(Math.max(reps * 1.05, targetRev / OV[1]));
       } else co.staff.sales = Math.ceil(targetRev / 6e6);
+      applyPreset(co, ind.b2b ? 'b2b' : scale > 1.5 ? 'national' : 'retail', co.marketing);
+      if (ind.reach.channels) { for (const a of ACCOUNTS) if (a.inds.includes(ind.id) && co.regions[a.region].unlocked && a.minQ <= 50 + scale * 8 && rand(s) < 0.7) co.accounts[a.id] = { since: s.month - 24 }; if (scale > 1) co.web = true; }
       if (situation === 'turnaround') for (const p of ind.products) { const ps = co.products[p.id]; ps.q -= 10; ps.price = Math.round(ps.price * 0.94 * 100) / 100; }
       for (const [c, m] of Object.entries(co.mats)) { m.usage = 0; }
       for (const p of ind.products) { const ps = co.products[p.id]; if (!ps.active || p.recurring) continue; for (const [c, q] of Object.entries(p.bom || {})) if (COMMODITIES[c].stock !== false) { const m = co.mats[c]; const u = ps.fc * q; m.qty += u * 1.5; m.val += u * 1.5 * s.prices[c]; } if (ind.storable) { ps.fg = ps.fc * 0.4; ps.fgVal = ps.fg * ps.price * 0.3; } }
@@ -1433,11 +1695,11 @@
         { label: 'Voluntary recall', hint: 'Costly now, protects the brand', fx: (s, co, ctx) => { const ps = co.products[ctx]; const cost = 20000 + ps.rev * 0.6; co.cash -= cost; co.acc.events += cost; co.regions.forEach(r => r.aw *= 0.95); s.ceo.rep = clamp(s.ceo.rep + 1, 0, 100); return `The recall cost ${fmt$(cost)}. Regulators praised the quick response.`; } },
         { label: 'Fix it quietly', hint: '60% nothing happens; 40% lawsuit and a news story', fx: (s, co, ctx) => { if (rand(s) < 0.4) { const cost = 150000 + co.products[ctx].rev * 3; co.cash -= cost; co.acc.events += cost; co.regions.forEach(r => r.aw *= 0.7); s.ceo.rep = clamp(s.ceo.rep - 8, 0, 100); return `It leaked. Lawsuits and a forced recall cost ${fmt$(cost)} and your brand took a hit.`; } return 'Nobody noticed. This time.'; } }
       ] },
-    { id: 'megamart', w: 3, cond: (s, co) => ['snacks', 'beverage', 'beauty', 'apparel', 'electronics'].includes(co.ind) && !co.regions[2].unlocked && co.regions[1].unlocked && revMo(co) > 60000 && !co.flagMega,
+    { id: 'megamart', w: 3, cond: (s, co) => ['snacks', 'beverage', 'beauty', 'apparel', 'electronics'].includes(co.ind) && !co.regions[2].unlocked && co.regions[1].unlocked && revMo(co) > 60000 && !co.flagMega && !co.accounts.bigbox,
       title: 'A national big-box retailer wants you',
-      text: (s, co) => `MegaMart's buyer offers national shelf placement in 4,000 stores, waiving slotting fees. In exchange: 12% lower prices on national sales and net-60 payment terms. You would need the capacity and working capital to keep up.`,
+      text: (s, co) => `A national big-box retailer's buyer offers shelf placement in 4,000 stores and will waive the usual $500K slotting fee. You get their standard terms: about 18% below your list price and net-60 payment. You would need the capacity and working capital to keep up.`,
       choices: [
-        { label: 'Sign the deal', hint: 'Instant national distribution, thinner margins, slower cash', fx: (s, co) => { co.flagMega = true; co.regions[2].unlocked = true; co.regions[2].reach = 0.3; co.regions[2].aw = Math.max(co.regions[2].aw, 0.02); addFx(s, co, 'natDiscount', 0.88, Infinity); addFx(s, co, 'lag', 1, Infinity); return 'You are in 4,000 stores. Make sure the plant can keep up.'; } },
+        { label: 'Sign the deal', hint: 'Instant national distribution, thinner margins, slower cash', fx: (s, co) => { co.flagMega = true; co.regions[2].unlocked = true; co.regions[2].aw = Math.max(co.regions[2].aw, 0.02); co.accounts.bigbox = { since: s.month }; return 'You are in 4,000 stores. Make sure the plant can keep up.'; } },
         { label: 'Decline', hint: 'Grow on your own terms', fx: (s, co) => { co.flagMega = true; return 'You passed. The buyer says the door is open later.'; } }
       ] },
     { id: 'viral', w: 3, cond: (s, co) => !indById[co.ind].priceTaker && anyProduct(co).length && revMo(co) > 5000, ctx: (s, co) => pick(s, anyProduct(co)).id,
@@ -1667,6 +1929,8 @@
       co.cash -= fd.capex; co.acc.capex += fd.capex;
     }
     co.marketing = setup.marketing != null ? setup.marketing : 0;
+    applyPreset(co, defaultPreset(co), co.marketing);
+    if (ind.reach.channels) co.accounts.markets = { since: s.month };
     for (const p of ind.products) { const ps = co.products[p.id]; if (ps.active && !p.market) ps.fc = productDemand(s, co, p, ps).tot; }
     const start = setup.team || starterTeam(s, co);
     for (const d of DEPTS) co.staff[d] = start[d] || 0;
@@ -1710,6 +1974,8 @@
     loanCapacity, loanRate, takeLoan, repayLoan, revolverRoom, revolver,
     availableRounds, requestTermSheet, acceptTermSheet, buyback,
     crisisOptions, resolveCrisis, bankrupt, resolveEvent, acceptOffer, sellHolding, seekBuyer, endTenure,
+    freightIndex, compat, channelsFor, setMkt, applyPreset, accountsFor, pitchOdds, pitchAccount, dropAccount, toggleWeb, openStore, closeStore,
+    setTier, tierOf, ingredientQ, qEff, upgradesFor, startProject, farmInputs, farmDeal, partnerFarm, expandFarm, endFarm, bomOf, homeMult,
     elecPrice, ppaPrice, capPrice, prime, angelPre, starterTeam, estFacilityRevenue, computeAlerts, fmt$, clamp, ceoLiving, rand
   };
 })(typeof window !== 'undefined' ? window : globalThis);

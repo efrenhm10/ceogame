@@ -259,7 +259,7 @@
           <div class="vital"><span class="k">Revenue / mo</span><span class="v">${h ? f$(h.rev) : '—'}</span></div>
           <div class="vital"><span class="k">Net income / mo</span><span class="v ${h ? signCls(h.ni) : ''}">${h ? f$(h.ni) : '—'}</span></div>
           <div class="vital"><span class="k">Runway</span><span class="v ${runway < 4 ? 'neg' : runway < 8 ? 'warn' : ''}">${runway === Infinity ? 'Cash +' : runway.toFixed(1) + ' mo'}</span></div>
-          <div class="vital"><span class="k">${co.public ? 'Market cap' : 'Valuation'}</span><span class="v">${f$(val)}</span></div>
+          <div class="vital"><span class="k">${co.public ? 'Market cap' : 'Valuation'}</span><span class="v">${co.valuation ? f$(val) : '—'}</span></div>
         </div>
         <div class="close-month"><span class="date">${GC.monthLabel(S.month)}</span><button class="btn primary" data-act="advance" ${blocked ? 'disabled' : ''}>Close ${MONTHS[GC.calMonth(S.month)]}</button></div>
       </div>
@@ -344,6 +344,7 @@
       </section>
       ${I.storable ? `<section class="panel"><header><div><h3>Production plan</h3><p class="small muted">The plant builds to forecast demand plus a finished-goods buffer. More buffer means fewer stockouts and more cash tied up in inventory.</p></div>
         <label class="row small">Finished-goods buffer <span class="stepper"><button class="btn" data-act="buffer" data-d="-1">−</button><span class="mono">${co.bufferWeeks} wk</span><button class="btn" data-act="buffer" data-d="1">+</button></span></label></header></section>` : ''}
+      ${devPanel()}
       ${facilitiesPanel()}
     </div>`;
   }
@@ -360,12 +361,46 @@
         const weeks = ps.fc > 0 ? ps.fg / ps.fc * 4.33 : 0;
         return `<tr><td><div class="name-cell"><b>${esc(p.name)}</b><span class="muted">per ${esc(p.unit)} · market ${unitPrice(ref)}</span></div></td>
           <td><input type="number" class="w-s" id="price-${p.id}" data-bind="price" data-id="${p.id}" step="${ps.price < 10 ? 0.05 : ps.price < 1000 ? 1 : 100}" min="0" value="${ps.price}" aria-label="Price for ${esc(p.name)}"></td>
-          <td style="min-width:110px">${meter(ps.q / 100, ps.q < 40 ? 'bad' : ps.q < 55 ? 'warn' : '')}</td>
+          <td style="min-width:110px">${qMeter(p)}</td>
           <td class="r num">${fN(ps.dem || 0)}</td><td class="r num">${fN(ps.sold || 0)}</td><td class="r num ${ps.lost > ps.sold * 0.05 ? 'neg' : 'muted'}">${fN(ps.lost || 0)}</td>
           <td class="r num">${ps.unitCost ? unitPrice(ps.unitCost) : '—'}</td><td class="r num ${signCls(margin)}">${ps.unitCost ? pct(margin / ps.price) : '—'}</td>
           ${I.storable ? `<td class="r num">${fN(ps.fg || 0)} <span class="muted">(${weeks.toFixed(1)} wk)</span></td>` : ''}<td class="r"><button class="btn sm ghost" data-act="priceRef" data-id="${p.id}">Match market</button></td></tr>`;
       }).join('')}</tbody></table>
       <p class="small muted" style="margin:10px 0 0">Demand is what customers wanted. Lost sales come from stockouts or not enough capacity. Unit cost includes materials, contract fees, energy, freight and other variable costs; staff and site costs are fixed and sit lower in the P&amp;L.</p>`;
+  }
+  function qMeter(p) {
+    const q = GC.qEff(S.co, p);
+    return `<div class="meter-l"><div class="meter ${q < 40 ? 'bad' : q < 55 ? 'warn' : ''}" style="flex:1"><i style="width:${q.toFixed(1)}%"></i></div><span class="num">${Math.round(q)}</span></div>`;
+  }
+  function devPanel() {
+    const co = S.co, I = ind();
+    const prods = I.products.filter(p => co.products[p.id].active && GC.upgradesFor(co, p).length);
+    if (!prods.length) return '';
+    const sel = prods.some(p => p.id === U.devProduct) ? U.devProduct : prods[0].id;
+    const p = I.products.find(x => x.id === sel), ps = co.products[p.id];
+    const ing = GC.ingredientQ(co, p);
+    const parts = [['R&D know-how', ps.q], ['Ingredients & farm partners', ing], ['Improvements finished', ps.qBonus || 0], ['PR & sponsorships', co._prQ || 0]];
+    const speed = co.staff.rd > 0 ? Math.min(2, 1 + co.staff.rd / 20) : 0.5;
+    const ups = GC.upgradesFor(co, p).map(u => {
+      const done = ps.done.includes(u.id), wip = ps.projects[u.id];
+      const fx = [`+${u.q} quality`];
+      if (u.mat) fx.push(`${u.mat > 1 ? '+' : ''}${pct(u.mat - 1)} material cost`);
+      if (u.demand) fx.push(`+${pct(u.demand - 1)} demand`);
+      if (u.demandHome) fx.push(`+${pct(u.demandHome - 1)} demand at home`);
+      const locked = u.rd && co.rdPts < u.rd;
+      const cost = u.cost * S.macro.cpi;
+      return `<div class="card"><div class="row spread"><h3>${esc(u.name)}</h3>${done ? '<span class="pill good">Done</span>' : wip ? `<span class="pill warn">${Math.ceil(wip / speed)} mo left</span>` : ''}</div>
+        <div class="small muted">${esc(u.desc)}</div><div class="small">${fx.join(' · ')}</div>
+        ${done || wip ? '' : `<div class="foot"><button class="btn sm primary" data-act="project" data-id="${p.id}" data-u="${u.id}" ${locked || co.cash < cost ? 'disabled' : ''}>Start · ${f$(cost)} · ${u.months} mo</button>${locked ? `<span class="small muted">Needs ${u.rd} R&amp;D points</span>` : ''}</div>`}</div>`;
+    }).join('');
+    return `<section class="panel"><header><div><h2>Product development</h2><p class="small muted">Quality drives demand, lets you charge more, and opens doors with picky buyers like resort hotels. It comes from four places.</p></div>
+      ${prods.length > 1 ? `<select id="devProduct" data-bind="devProduct">${prods.map(x => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</header>
+      <div class="grid g2" style="margin-bottom:14px">
+        <div><div class="row spread"><b>${esc(p.name)}</b><span class="mono" style="font-size:20px;font-weight:600">${Math.round(GC.qEff(co, p))}<span class="muted small">/100</span></span></div>
+          <table class="t" style="margin-top:6px"><tbody>${parts.map(([n, v]) => `<tr><td>${n}</td><td class="r num ${v < 0 ? 'neg' : v > 0 && n !== 'R&D know-how' ? 'pos' : ''}">${n === 'R&D know-how' ? Math.round(v) : (v >= 0 ? '+' : '') + v.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="note"><b>How to raise it:</b> choose budget, standard or elevated ingredients on the <b>Supply chain</b> tab; partner with a local farm; finish the improvement projects below (faster with more ${esc(I.rdName.toLowerCase())}: ${speed.toFixed(1)}× speed now); hire R&amp;D to build know-how; fund PR. Competitors keep improving, so know-how slowly fades without R&amp;D.</div>
+      </div>
+      <div class="cards">${ups}</div></section>`;
   }
   function recurringTable() {
     const co = S.co, I = ind();
@@ -376,7 +411,7 @@
         if (!ps.active) return `<tr><td><div class="name-cell"><b>${esc(p.name)}</b><span class="muted">list ${unitPrice(ref)}/mo</span></div></td><td colspan="7">${ps.unlocked ? `<span class="pill good">Ready to launch</span> <span class="small muted">launch cost ${f$((p.launch || 0) * S.macro.cpi)}</span>` : `<span class="pill">Locked</span> <span class="small muted">needs ${p.unlock} R&amp;D points</span>`}</td><td class="r">${ps.unlocked ? `<button class="btn sm primary" data-act="launch" data-id="${p.id}">Launch</button>` : ''}</td></tr>`;
         return `<tr><td><div class="name-cell"><b>${esc(p.name)}</b><span class="muted">market ${unitPrice(ref)}/mo</span></div></td>
           <td><input type="number" class="w-s" id="price-${p.id}" data-bind="price" data-id="${p.id}" step="${ps.price < 20 ? 0.5 : ps.price < 1000 ? 5 : 100}" min="0" value="${ps.price}" aria-label="Price for ${esc(p.name)}"></td>
-          <td style="min-width:110px">${meter(ps.q / 100, ps.q < 40 ? 'bad' : ps.q < 55 ? 'warn' : '')}</td>
+          <td style="min-width:110px">${qMeter(p)}</td>
           <td class="r num">${fN(ps.customers || 0, 0)}</td><td class="r num pos">+${fN(ps.newCust || 0, 0)}</td><td class="r num">${pct(ps.churnRate || 0, 1)}</td>
           <td class="r num">${f$(ps.rev || 0)}</td><td class="r num">${ps.unitCost ? unitPrice(ps.unitCost) : '—'}</td><td class="r"><button class="btn sm ghost" data-act="priceRef" data-id="${p.id}">Match market</button></td></tr>`;
       }).join('')}</tbody></table>
@@ -386,7 +421,7 @@
     const co = S.co, I = ind();
     return `<table class="t"><thead><tr><th>Stream</th><th class="r">Volume</th><th class="r">Realized price</th><th class="r">Revenue</th><th class="r">Royalties &amp; taxes</th><th>Engineering quality</th></tr></thead><tbody>
       ${I.products.map(p => { const ps = co.products[p.id]; const pr = ps.sold > 0 ? ps.rev / ps.sold : 0;
-        return `<tr><td><div class="name-cell"><b>${esc(p.name)}</b><span class="muted">per ${esc(p.unit)}</span></div></td><td class="r num">${fN(ps.sold || 0)}</td><td class="r num">${pr ? unitPrice(pr) : '—'}</td><td class="r num">${f$(ps.rev || 0)}</td><td class="r num">${pct((p.royalty || 0) + (p.sevTax || 0))}</td><td style="min-width:120px">${meter(ps.q / 100)}</td></tr>`; }).join('')}
+        return `<tr><td><div class="name-cell"><b>${esc(p.name)}</b><span class="muted">per ${esc(p.unit)}</span></div></td><td class="r num">${fN(ps.sold || 0)}</td><td class="r num">${pr ? unitPrice(pr) : '—'}</td><td class="r num">${f$(ps.rev || 0)}</td><td class="r num">${pct((p.royalty || 0) + (p.sevTax || 0))}</td><td style="min-width:120px">${qMeter(p)}</td></tr>`; }).join('')}
       </tbody></table><p class="small muted" style="margin:10px 0 0">${I.id === 'oilgas' ? 'Shale wells decline steeply: a new well loses roughly 60% of its output in year one. Keep drilling to hold production flat. Engineers raise initial production rates.' : 'Output depends on the site\'s sun or wind resource. Batteries earn capacity payments; gas peakers earn high prices but burn fuel.'}</p>`;
   }
   function facilitiesPanel() {
@@ -405,6 +440,7 @@
     return `<section class="panel"><header><div><h2>Facilities</h2><p class="small muted">${util}Site costs are monthly lease plus fixed operating cost. Selling an operating site recovers about 55% of book value.</p></div></header>
       ${co.facilities.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Site</th><th>Status</th><th class="r">Capacity</th><th class="r">Monthly cost</th><th class="r">Book value</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">No sites yet.</div>'}
       ${(co.assets || []).length ? `<p class="small muted">Other assets: ${co.assets.map(a => esc(a.label) + ' (' + f$(a.book) + ')').join(', ')}</p>` : ''}
+      ${I.storable ? `<div class="note" style="margin-top:12px"><b>Where to make it.</b> Every site card lets you pick the city. Making it at home is simplest for local sales${city().id === 'honolulu' ? ', but shipping from Hawaii to the mainland costs about 60% more freight' : ''}. A plant in another state cuts freight to the rest of the country and may have cheaper labor and power. Overseas contract factories are cheapest per unit, but you pay tariffs and wait on ocean freight.${co.facilities.length ? ` <b>Freight cost index now</b>: ${co.regions.map((r, i) => `${esc(r.name)} ${GC.freightIndex(co)[i].toFixed(2)}×`).join(' · ')}.` : ''}</div>` : ''}
       <h3 style="margin:18px 0 10px">Build or contract more capacity</h3>
       <div class="cards">${I.facilities.map(fd => facilityCard(fd, lc)).join('')}</div>
     </section>`;
@@ -448,7 +484,9 @@
   function tabSupply() {
     const co = S.co, I = ind(), C = city();
     const all = Object.entries(co.mats);
-    const inUse = ([, m]) => m.usage > 0 || m.qty > 0.5 || m.orders.length;
+    const activeBom = new Set(I.products.filter(p => co.products[p.id].active).flatMap(p => Object.keys(p.bom || {})));
+    if (I.id === 'power' && co.facilities.some(f => GC.facDef(co, f).tech === 'gas')) activeBom.add('natgas');
+    const inUse = ([c, m]) => activeBom.has(c) || m.usage > 0 || m.qty > 0.5 || m.orders.length;
     const mats = all.filter(inUse);
     const later = all.filter(x => !inUse(x)).map(([c]) => COMMODITIES[c].name.toLowerCase());
     if (!all.length) return `<section class="panel"><div class="empty">This business has no physical inputs.</div></section>`;
@@ -462,8 +500,12 @@
       const cover = m.usage > 0 ? m.qty / m.usage : 0;
       const contract = m.contract && m.contract.until >= S.month;
       const stock = cm.stock !== false;
+      const names = D.TIER_NAMES[c] || ['Budget grade', 'Standard grade', 'Premium grade'];
+      const curTier = co.tier[c] || 'standard';
+      const gradeSel = stock ? `<select id="tier-${c}" data-bind="tier" data-id="${c}" aria-label="Ingredient grade for ${esc(cm.name)}">${['budget', 'standard', 'elevated'].map((t, i) => `<option value="${t}" ${t === curTier ? 'selected' : ''}>${D.TIERS[t].name}: ${esc(names[i])} (${D.TIERS[t].mult === 1 ? 'list' : (D.TIERS[t].mult > 1 ? '+' : '') + pct(D.TIERS[t].mult - 1)})</option>`).join('')}</select>` : '<span class="small muted">—</span>';
       return `<tr>
-        <td><div class="name-cell"><b>${esc(cm.name)}</b><span class="muted">per ${esc(cm.unit)}</span></div></td>
+        <td><div class="name-cell"><b>${esc(cm.name)}</b><span class="muted">per ${esc(cm.unit)}${co.farms[c] ? ' · <span class="pos">partner farm</span>' : ''}</span></div></td>
+        <td>${gradeSel}</td>
         <td class="num">${unitPrice(S.prices[c])}<div class="small ${chg > 0.05 ? 'neg' : chg < -0.05 ? 'pos' : 'muted'}">${chg >= 0 ? '+' : ''}${pct(chg)} 12 mo</div></td>
         <td>${spark(hist)}</td>
         <td><select id="sup-${c}" data-bind="supplier" data-id="${c}" aria-label="Supplier for ${esc(cm.name)}">${opts.map(o => { const tt = GC.supplierTerms(S, co, c, o); return `<option value="${o}" ${o === m.sup ? 'selected' : ''}>${esc(tt.label)} · ${unitPrice(tt.price)}${stock ? ` · ${tt.lead} mo · ${pct(tt.rel)}` : ''}</option>`; }).join('')}</select>
@@ -479,14 +521,31 @@
       <section class="panel"><header><div><h2>Inputs &amp; suppliers</h2><p class="small muted">Orders are placed automatically each month to keep your target months of cover, based on forecast production. Lead time, reliability and payment terms depend on the supplier.</p></div>
         <label class="toggle small"><input type="checkbox" id="emergency" data-bind="emergency" ${co.emergencyBuy ? 'checked' : ''}> Expedite shortfalls at a 40% premium</label></header>
         ${later.length ? `<p class="small muted" style="margin:0 0 8px">Products you have not launched yet will also need ${esc(later.join(', '))}.</p>` : ''}
-        <div class="tbl-wrap"><table class="t"><thead><tr><th>Input</th><th>Market price</th><th>12 months</th><th>Supplier · price · lead · on-time</th><th class="r">Use / mo</th><th class="r">Target cover (mo)</th><th class="r">On hand</th><th class="r">On order</th><th>Fixed-price contract</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="tbl-wrap"><table class="t"><thead><tr><th>Input</th><th>Grade</th><th>Market price</th><th>12 months</th><th>Supplier · price · lead · on-time</th><th class="r">Use / mo</th><th class="r">Target cover (mo)</th><th class="r">On hand</th><th class="r">On order</th><th>Fixed-price contract</th></tr></thead><tbody>${rows}</tbody></table></div>
       </section>
+      ${farmPanel()}
       <div class="grid g3">
         <div class="note"><b>Local distributors</b> deliver the same month with almost no risk, at a markup. <b>Domestic producers</b> are list price with a one-month lead. <b>Overseas imports</b> are 20% cheaper before freight and tariffs, take two months, slip more often, and want cash up front.</div>
         <div class="note"><b>Perishables spoil.</b> ${Object.keys(co.mats).filter(c => COMMODITIES[c].spoil >= 0.3).map(c => COMMODITIES[c].name).join(', ') || 'None of your inputs are perishable'}${Object.keys(co.mats).some(c => COMMODITIES[c].spoil >= 0.3) ? ' lose a large share of any stock held over a month, so keep cover low and buy local.' : '.'} Shelf-stable inputs cost about 2% of their value per month to hold, in the cash they tie up.</div>
         <div class="note">${C.id === 'honolulu' ? `<b>Honolulu:</b> everything arrives by ship under the Jones Act. Mainland and overseas supplies cost about ${pct(C.inbound - 1)} more landed, and shipping finished goods to the mainland costs far more than shipping within the islands. A mainland plant can fix that.` : `<b>Tariffs</b> currently add ${pct(S.macro.tariff - 1)} to most imported inputs. Fixed-price contracts protect you from spikes, and cost you if prices fall.`}</div>
       </div>
     </div>`;
+  }
+
+  function farmPanel() {
+    const co = S.co;
+    const list = GC.farmInputs(co);
+    if (!list.length) return '';
+    const rows = list.map(c => {
+      const cm = COMMODITIES[c], f = co.farms[c], m = co.mats[c];
+      if (f) return `<tr><td><div class="name-cell"><b>${esc(f.name)}</b><span class="muted">${esc(cm.name)} since ${GC.monthLabel(f.since)}</span></div></td><td class="r num">${unitPrice(f.price * S.macro.cpi / f.cpi)}</td><td class="r num">${fN(f.cap)} ${esc(cm.unit)}/mo</td><td class="r num">${fN(m.usage || 0)}</td>
+        <td class="r"><span class="row" style="justify-content:flex-end"><button class="btn sm" data-act="farmExpand" data-id="${c}">Help them expand</button>${confirmBtn('farm-' + c, 'End', 'farmEnd', 'ghost', c)}</span></td></tr>`;
+      const d = GC.farmDeal(S, co, c);
+      return `<tr><td><div class="name-cell"><b>Partner with a ${esc(d.name)}</b><span class="muted">${esc(cm.name)}${m.usage > 0 ? '' : ' · not used by your current products'}</span></div></td><td class="r num">${unitPrice(d.price)}</td><td class="r num">${fN(d.cap)} ${esc(cm.unit)}/mo</td><td class="r num">${fN(m.usage || 0)}</td>
+        <td class="r"><button class="btn sm primary" data-act="farm" data-id="${c}" ${co.cash >= d.invest ? '' : 'disabled'}>Invest ${f$(d.invest)}</button></td></tr>`;
+    }).join('');
+    return `<section class="panel"><header><div><h2>Local farm &amp; producer partnerships</h2><p class="small muted">Invest in a nearby farm and it sells to you at a stable price, delivers almost every time, and lets you say "locally grown": +6 quality from that ingredient and about 5% more demand in your home markets. It can only grow so much; anything beyond its capacity comes from your usual supplier.</p></div></header>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Partner</th><th class="r">Price</th><th class="r">Can supply</th><th class="r">You use / mo</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
   }
 
   // ---------- People ----------
@@ -540,33 +599,99 @@
   // ---------- Markets ----------
   function tabMarkets() {
     const co = S.co, I = ind();
-    const regs = co.regions;
+    return `<div class="stack">${marketingPlan()}${regionsPanel()}${I.reach.channels ? accountsPanel() + ownRetailPanel() : ''}${competitionPanel()}</div>`;
+  }
+  function marketingPlan() {
+    const co = S.co, I = ind();
+    const chans = GC.channelsFor(co);
+    const reached = co.regions.filter(r => r.unlocked).reduce((a, r) => a + Math.max(20000, r.pop * Math.max(r.reach, 0.02)), 0);
+    const satS = (ch) => ch.sat * (3000 + 0.003 * reached);
+    const presets = Object.entries(D.MKT_PRESETS).filter(([k]) => I.b2b ? k === 'b2b' || k === 'national' || k === 'retail' : k !== 'b2b' && (k !== 'tourist' || city().tourism >= 0.3));
+    return `<section class="panel"><header><div><h2>Marketing plan</h2><p class="small muted">Split your budget across channels. Each channel gets less effective the more you pour into it, so a mix beats one big bet. TV only works above about $40K a month.</p></div>
+      <div class="row"><span class="small muted">Total</span><b class="mono">${f$(co.marketing)}/mo</b></div></header>
+      <div class="row small" style="margin-bottom:12px"><span class="muted">Start from a plan:</span>${presets.map(([k, pr]) => `<button class="btn sm" data-act="preset" data-id="${k}">${esc(pr.name)}</button>`).join('')}<input type="number" class="w-s" id="presetTotal" data-bind="presetTotal" step="1000" min="0" value="${Math.round(U.presetTotal != null ? U.presetTotal : co.marketing)}" aria-label="Total budget for the plan"><span class="muted">per month</span></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Channel</th><th>Budget / month</th><th>Saturation</th></tr></thead><tbody>
+      ${chans.map(ch => { const b = co.mkt[ch.id] || 0; const sat = 1 - Math.exp(-b / satS(ch)); const weak = ch.min && b > 0 && b < ch.min;
+        return `<tr><td><div class="name-cell"><b>${esc(I.b2b && ch.b2bName ? ch.b2bName : ch.name)}</b><span class="muted">${esc(ch.blurb)}${ch.regions ? ' Home and state markets only.' : ''}</span></div></td>
+          <td><input type="number" class="w-s" id="mkt-${ch.id}" data-bind="mkt" data-id="${ch.id}" step="500" min="0" value="${Math.round(b)}" aria-label="${esc(ch.name)} budget"></td>
+          <td style="min-width:130px">${b > 0 ? meter(sat, sat > 0.7 ? 'warn' : '') : '<span class="small muted">off</span>'}${weak ? '<div class="small warn">Below the level where TV pays off</div>' : ''}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <p class="small muted" style="margin:10px 0 0">High saturation means extra dollars in that channel buy little. Sampling and trade shows also raise your odds of landing retail accounts; PR makes products seem higher quality; search ads lift conversion.</p>
+    </section>`;
+  }
+  function regionsPanel() {
+    const co = S.co, I = ind();
+    const label = ['Sell locally', 'Sell statewide / regionally', 'Sell nationwide', 'Sell internationally'];
+    const compName = { reps: 'sales team & independent stores', web: 'online store', stores: 'your stores' };
+    const rows = co.regions.map((r, i) => {
+      const cost = (I.regionCost[i] || 0) * S.macro.cpi;
+      const canUnlock = !r.unlocked && (i === 0 || co.regions[i - 1].unlocked);
+      const comp = r.chan && r.chan.comp ? Object.entries(r.chan.comp).filter(([, v]) => v > 0.002).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k.startsWith('a:') ? esc((D.ACCOUNTS.find(a => 'a:' + a.id === k) || {}).name || k) : compName[k]} ${pct(v)}`).join(' · ') : '';
+      return `<tr><td><div class="name-cell"><span class="eyebrow">${label[i]}</span><b>${esc(r.name)}</b><span class="muted">${fN(r.pop)} people</span></div></td>
+        <td>${r.unlocked ? '<span class="pill good">Selling</span>' : '<span class="pill">Not entered</span>'}</td>
+        <td style="min-width:120px">${r.unlocked ? meter(r.aw) : '—'}</td><td style="min-width:120px">${r.unlocked ? meter(r.reach) : '—'}${I.reach.channels && comp ? `<div class="small muted" style="margin-top:3px">${comp}</div>` : ''}</td>
+        <td>${!r.unlocked ? `<div class="small muted">${esc(I.regionNote[i] || '')}</div>${canUnlock ? `<button class="btn sm primary" style="margin-top:4px" data-act="unlock" data-id="${i}" ${co.cash >= cost ? '' : 'disabled'}>Enter for ${f$(cost)}</button>` : '<span class="small muted">Enter the previous market first</span>'}` : (i >= 2 && co.city === 'honolulu' && I.freightShare ? '<span class="small muted">Jones Act freight on every unit you ship from Hawaii. A mainland plant avoids it.</span>' : '')}</td></tr>`;
+    }).join('');
+    return `<section class="panel"><header><div><h2>Where you sell</h2><p class="small muted"><b>Awareness</b>: how many people in reach know you. <b>Reach</b>: where customers can actually buy you${I.reach.channels ? ', built from the retail accounts you win, your own shops, your online store and your sales team' : I.reach.mode === 'locations' ? ', which comes from your locations' : ', built by your sales team'}.</p></div></header>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Market</th><th>Status</th><th>Awareness</th><th>Reach</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  }
+  function accountsPanel() {
+    const co = S.co, I = ind();
+    const hnl = co.city === 'honolulu';
+    const accs = GC.accountsFor(co);
+    const groups = [0, 1, 2, 3].map(i => [i, accs.filter(a => a.region === i)]).filter(([, l]) => l.length);
+    const row = (a) => {
+      const on = !!co.accounts[a.id];
+      const r = co.regions[a.region];
+      const cool = (co.acctCool[a.id] || 0) > S.month;
+      const odds = GC.pitchOdds(S, co, a);
+      const slot = a.slot * S.macro.cpi;
+      let action;
+      if (on) action = `<span class="pill good">Carried</span> ${confirmBtn('drop-' + a.id, 'Drop', 'dropAcct', 'ghost', a.id)}`;
+      else if (!r.unlocked) action = '<span class="small muted">Enter this market first</span>';
+      else if (cool) action = `<span class="small muted">Buyer busy until ${GC.monthLabel(co.acctCool[a.id])}</span>`;
+      else if (odds <= 0) action = `<span class="small warn">Needs quality ${a.minQ}+</span>`;
+      else action = `<button class="btn sm primary"  data-act="pitchAcct" data-id="${a.id}" ${co.cash >= slot ? '' : 'disabled'}>Pitch · ${pct(odds)} odds</button>`;
+      return `<tr><td><div class="name-cell"><b>${esc(hnl && a.hnl ? a.hnl : a.name)}</b><span class="muted">${a.note ? esc(a.note) : `Puts you in front of about ${pct(a.cover * (a.tour && hnl ? 1.8 : 1))} of the market${a.tour ? ', more in tourist season' : ''}.`}</span></div></td>
+        <td class="r num">${pct(a.mult)}</td><td class="r num">${slot ? f$(slot) : '—'}</td><td class="r num">${a.fee ? f$(a.fee * S.macro.cpi) : '—'}</td><td class="r num">${a.minQ || '—'}</td><td class="r num">${a.lag ? (a.lag >= 1 ? 'net 60' : 'net 45') : 'net 30'}</td><td class="r">${action}</td></tr>`;
+    };
+    const label = ['Local', 'Statewide', 'Nationwide', 'International'];
+    const bestQ = Math.max(0, ...I.products.filter(p => S.co.products[p.id].active).map(p => GC.qEff(co, p)));
+    return `<section class="panel"><header><div><h2>Retail accounts &amp; partners</h2><p class="small muted">Pitch hotels, shops and chains to carry your products. Odds rise with your quality (best product: <b class="mono">${Math.round(bestQ)}</b>), local awareness, your sales team, and sampling or trade-show spend. "Price you get" is what they pay you as a share of your list price.</p></div></header>
+      ${U.pitchMsg ? `<div class="note" style="margin-bottom:10px">${esc(U.pitchMsg)}</div>` : ''}
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Account</th><th class="r">Price you get</th><th class="r">Slotting</th><th class="r">Monthly</th><th class="r">Min. quality</th><th class="r">Pays</th><th></th></tr></thead><tbody>
+      ${groups.map(([i, l]) => `<tr class="sub"><td colspan="7" class="eyebrow" style="padding-left:8px">${label[i]}${co.regions[i].unlocked ? '' : ' · not entered'}</td></tr>` + l.map(row).join('')).join('')}
+      </tbody></table></div></section>`;
+  }
+  function ownRetailPanel() {
+    const co = S.co;
+    const C = city();
+    const regionOpts = co.regions.map((r, i) => r.unlocked ? `<option value="${i}" ${(+U.storeRegion || 0) === i ? 'selected' : ''}>${esc(r.name)}</option>` : '').join('');
+    const rentF = C.officeRent / 40;
+    const open = co.stores.map((x, i) => { const sd = D.STOREFRONTS.find(y => y.id === x.type); return `<tr><td>${esc(sd.name)}</td><td>${esc(co.regions[x.region].name)}</td><td class="r num">${f$(sd.monthly * rentF * S.macro.cpi)}</td><td>${x.until != null ? `<span class="pill warn">Ends ${GC.monthLabel(x.until)}</span>` : `<span class="small muted">since ${GC.monthLabel(x.opened)}</span>`}</td><td class="r">${confirmBtn('close-' + i, 'Close', 'closeStore', 'danger', i)}</td></tr>`; }).join('');
+    return `<section class="panel"><header><div><h2>Your own shops &amp; online store</h2><p class="small muted">Sell direct at full retail price, about twice what a retailer pays you, but you carry the rent, staff and shipping. Pop-ups let you test a spot for a season. Rents follow ${esc(C.name)} prices.</p></div></header>
+      <div class="row spread" style="margin-bottom:12px"><div class="small"><b>Online store</b><div class="muted">Sells to everyone in markets you've entered who knows your brand. Pick, pack and shipping take about ${pct(D.WEBSTORE.varAdd)} of the retail price${C.id === 'honolulu' ? ' (more for shipping to the mainland)' : ''}.</div></div>
+        ${co.web ? `<span class="row"><span class="pill good">Live</span>${confirmBtn('web', 'Shut down', 'web', 'ghost')}</span>` : `<button class="btn primary sm" data-act="web">Launch for ${f$(D.WEBSTORE.setup * S.macro.cpi)} + ${f$(D.WEBSTORE.monthly)}/mo</button>`}</div>
+      <div class="row small" style="margin-bottom:8px"><label for="storeRegion" class="muted">Open in</label><select id="storeRegion" data-bind="storeRegion">${regionOpts}</select></div>
+      <div class="cards">${D.STOREFRONTS.map(sd => { const c = sd.capex * rentF * S.macro.cpi; return `<div class="card"><h3>${esc(sd.name)}</h3><div class="small muted">${esc(sd.blurb)}</div>
+        <dl class="facts"><dt>Build-out</dt><dd>${f$(c)}</dd><dt>Rent + staff</dt><dd>${f$(sd.monthly * rentF * S.macro.cpi)}/mo</dd><dt>Serves</dt><dd>${fN(sd.cover)} people</dd>${sd.months ? `<dt>Runs</dt><dd>${sd.months} months</dd>` : ''}</dl>
+        <div class="foot"><button class="btn sm primary" data-act="openStore" data-id="${sd.id}" ${co.cash >= c ? '' : 'disabled'}>${sd.months ? 'Book it' : 'Open'}</button></div></div>`; }).join('')}</div>
+      ${open ? `<div class="tbl-wrap" style="margin-top:12px"><table class="t"><thead><tr><th>Open now</th><th>Market</th><th class="r">Monthly</th><th></th><th></th></tr></thead><tbody>${open}</tbody></table></div>` : ''}
+    </section>`;
+  }
+  function competitionPanel() {
+    const co = S.co, I = ind();
     const ms = I.products.filter(p => co.products[p.id].active).reduce((a, p) => a + GC.marketSize(S, co, p), 0);
     const rev = last() ? last().rev : 0;
-    const rows = regs.map((r, i) => {
-      const cost = (I.regionCost[i] || 0) * S.macro.cpi;
-      const canUnlock = !r.unlocked && (i === 0 || regs[i - 1].unlocked);
-      return `<tr><td><div class="name-cell"><b>${esc(r.name)}</b><span class="muted">${fN(r.pop)} people</span></div></td>
-        <td>${r.unlocked ? '<span class="pill good">Selling</span>' : '<span class="pill">Not entered</span>'}</td>
-        <td style="min-width:120px">${r.unlocked ? meter(r.aw) : '—'}</td><td style="min-width:120px">${r.unlocked ? meter(r.reach) : '—'}</td>
-        <td>${!r.unlocked ? `<div class="small muted">${esc(I.regionNote[i] || '')}</div>${canUnlock ? `<button class="btn sm primary" style="margin-top:4px" data-act="unlock" data-id="${i}" ${co.cash >= cost ? '' : 'disabled'}>Enter for ${f$(cost)}</button>` : '<span class="small muted">Enter the previous market first</span>'}` : (i === 2 && co.city === 'honolulu' && I.freightShare ? '<span class="small muted">Jones Act freight on every unit shipped</span>' : '')}</td></tr>`;
-    }).join('');
-    const season = I.season;
-    return `<div class="stack">
-      <section class="panel"><header><div><h2>Markets</h2><p class="small muted"><b>Awareness</b> is how many people in reach know you; marketing builds it and it fades without spend. <b>Reach</b> is where customers can actually buy you: ${I.reach.mode === 'locations' ? 'the population your locations serve' : 'shelf distribution and sales coverage, built by your sales team'}.</p></div>
-        <label class="row small" for="mktBudget">Marketing / month <input type="number" id="mktBudget" data-bind="marketing" step="1000" min="0" value="${Math.round(co.marketing)}"></label></header>
-        <div class="tbl-wrap"><table class="t"><thead><tr><th>Market</th><th>Status</th><th>Awareness</th><th>Reach</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-      </section>
-      <div class="grid g2">
+    return `<div class="grid g2">
         <section class="panel"><header><h3>Competitive landscape</h3><span class="small muted">in the markets you sell in</span></header>
           <div class="row spread small"><span>Addressable market</span><b class="mono">${f$(ms)}/mo</b></div>
           <div class="row spread small" style="margin-top:4px"><span>Your share</span><b class="mono">${ms > 0 ? pct(rev / ms, 2) : '—'}</b></div>
           <div style="margin-top:10px">${I.competitors.map(c => `<span class="pill" style="margin:0 6px 6px 0">${esc(c)}</span>`).join('')}</div>
           ${(co.fx || []).some(x => x.k === 'compPrice') ? '<div class="note" style="margin-top:8px">A price war is under way: customers are comparing you with cheaper rivals.</div>' : ''}
         </section>
-        <section class="panel"><header><h3>Seasonality</h3><span class="small muted">demand index by month</span></header>${barChart(season.map(x => x * 100), MONTHS.map(x => x + ' index'), { h: 120, label: 'Seasonal demand index' })}</section>
-      </div>
-    </div>`;
+        <section class="panel"><header><h3>Seasonality</h3><span class="small muted">demand index by month</span></header>${barChart(I.season.map(x => x * 100), MONTHS.map(x => x + ' index'), { h: 120, label: 'Seasonal demand index' })}</section>
+      </div>`;
   }
   function tabPrices() {
     const co = S.co, I = ind();
@@ -594,7 +719,7 @@
       ['Revenue', 'rev', 'em'],
       ['Materials & inputs', 'cogsMat', 'sub', -1], ['Contract manufacturing', 'cogsToll', 'sub', -1], ['Direct labor', 'cogsLabor', 'sub', -1], ['Sites & leases', 'cogsSite', 'sub', -1], ['Energy', 'cogsEnergy', 'sub', -1], ['Freight & variable', 'cogsVar', 'sub', -1], ['Fuel', 'cogsFuel', 'sub', -1], ['Royalties & severance tax', 'cogsRoy', 'sub', -1], ['Spoilage', 'cogsSpoil', 'sub', -1],
       ['Gross profit', 'gp', 'total'],
-      ['Salaries (non-production)', 'opPay', 'sub', -1], ['Marketing', 'opMkt', 'sub', -1], ['Office rent', 'opOffice', 'sub', -1], ['G&A, insurance, market upkeep', 'opGA', 'sub', -1], ['Gross-receipts taxes', 'opGRT', 'sub', -1], ['One-time (hiring, launches, events)', 'opOne', 'sub', -1],
+      ['Salaries (non-production)', 'opPay', 'sub', -1], ['Marketing', 'opMkt', 'sub', -1], ['Retail accounts, shops & online store', 'opChan', 'sub', -1], ['Office rent', 'opOffice', 'sub', -1], ['G&A, insurance, market upkeep', 'opGA', 'sub', -1], ['Gross-receipts taxes', 'opGRT', 'sub', -1], ['One-time (hiring, launches, slotting, events)', 'opOne', 'sub', -1],
       ['EBITDA', 'ebitda', 'total'], ['Depreciation', 'dep', 'sub', -1], ['Interest', 'interest', 'sub', -1], ['Other income', 'otherInc', 'sub', 1], ['Pre-tax income', 'ebt', 'em'], ['Income tax', 'tax', 'sub', -1], ['Net income', 'ni', 'total']
     ];
     return L.filter(([, k, cls]) => cls !== 'sub' || cols.some(H => Math.abs(sum(H, k)) > 0.5)).map(([n, k, cls, sg]) => `<tr class="${cls}"><td>${n}</td>${cols.map(H => { const v = sum(H, k) * (sg || 1); return `<td class="r num ${cls === 'total' && v < 0 ? 'neg' : ''}">${H.length ? f$(v) : '—'}</td>`; }).join('')}</tr>`).join('');
@@ -785,7 +910,7 @@
     if (U.tab !== 'overview' && S.co) { /* stay on current tab */ }
   }
   const act = {
-    tab: (el) => { U.tab = el.dataset.id; U.flash = null; window.scrollTo(0, 0); },
+    tab: (el) => { U.tab = el.dataset.id; U.flash = null; U.pitchMsg = null; window.scrollTo(0, 0); },
     advance: () => { doAdvance(); return true; },
     askConfirm: (el) => { U.confirm = el.dataset.key; },
     cancelConfirm: () => { U.confirm = null; },
@@ -795,7 +920,7 @@
     pickBg: (el) => { U.setup.bg = el.dataset.id; U.setup.invest = null; },
     pickInd: (el) => { U.setup.ind = el.dataset.id; U.setup.name = ''; },
     pickCity: (el) => { U.setup.city = el.dataset.id; U.setup.name = ''; },
-    resume: () => { S = load(); U.setup = null; },
+    resume: () => { S = load(); U.setup = null; if (S && S.co) GC.compat(S.co); },
     found: () => {
       const st = U.setup;
       const setup = { ceoName: st.ceoName || 'You', bg: st.bg, ind: st.ind, city: st.city, name: st.name || 'New Co', invest: st.invest || 0, sba: st.sba || 0, angel: st.angel || 0, salary: +st.salary || 0, marketing: +st.marketing || 0 };
@@ -805,6 +930,16 @@
       else { S = GC.newGame(setup); S.news.unshift({ m: 0, text: `${setup.name} is incorporated in ${GC.cityById[setup.city].name}. Day one.`, tone: 'good', big: true }); }
       U.setup = null; U.tab = 'overview'; save(); window.scrollTo(0, 0);
     },
+    preset: (el) => { GC.applyPreset(S.co, el.dataset.id, U.presetTotal != null ? U.presetTotal : S.co.marketing); },
+    pitchAcct: (el) => { const r = GC.pitchAccount(S, S.co, el.dataset.id); U.pitchMsg = r.err || r.msg; if (r.ok) S.news.unshift({ m: S.month, text: r.msg, tone: 'good' }); },
+    dropAcct: (el) => { GC.dropAccount(S.co, el.dataset.id); },
+    web: () => { const e = GC.toggleWeb(S, S.co); if (e) toast('Cannot launch', e); else if (S.co.web) toast('Online store live', 'Customers who know you can now order directly.'); },
+    openStore: (el) => { const e = GC.openStore(S, S.co, el.dataset.id, +U.storeRegion || 0); if (e) toast('Cannot open', e); else toast('Opening soon', 'Your new shop starts selling this month.'); },
+    closeStore: (el) => { GC.closeStore(S.co, +el.dataset.id); },
+    project: (el) => { const e = GC.startProject(S, S.co, el.dataset.id, el.dataset.u); if (e) toast('Cannot start', e); else toast('Project started', 'Your team is on it.'); },
+    farm: (el) => { const e = GC.partnerFarm(S, S.co, el.dataset.id); if (e) toast('Cannot partner', e); else toast('Partnership signed', 'Your partner farm now supplies you first.'); },
+    farmExpand: (el) => { const e = GC.expandFarm(S, S.co, el.dataset.id); if (e) toast('Cannot expand', e); else toast('Farm expanding', 'Your partner can now supply twice as much.'); },
+    farmEnd: (el) => { GC.endFarm(S.co, el.dataset.id); },
     launch: (el) => { const e = GC.launchProduct(S, S.co, el.dataset.id); if (e) toast('Cannot launch', e); else toast('Launched', GC.indById[S.co.ind].products.find(p => p.id === el.dataset.id).name + ' is on sale next month.'); },
     priceRef: (el) => { const p = ind().products.find(x => x.id === el.dataset.id); S.co.products[p.id].price = Math.round(p.price * S.macro.cpi * 100) / 100; },
     buffer: (el) => { S.co.bufferWeeks = Math.max(0, Math.min(12, S.co.bufferWeeks + +el.dataset.d)); },
@@ -882,6 +1017,11 @@
       case 'repayAmt': U['repay-' + id] = +v; return;
       case 'borrowAmt': U['borrow-' + id] = +v; return;
       case 'round': U.round = v; U.raiseAmt = null; break;
+      case 'mkt': GC.setMkt(co, id, +v || 0); break;
+      case 'presetTotal': U.presetTotal = Math.max(0, +v || 0); return;
+      case 'storeRegion': U.storeRegion = +v; break;
+      case 'tier': GC.setTier(co, id, v); break;
+      case 'devProduct': U.devProduct = v; break;
       case 'raiseAmt': U.raiseAmt = +v; { const n = el.parentElement.querySelector('.num'); if (n) n.textContent = f$(+v); } if (e.type === 'input') return; break;
       case 'buybackAmt': U.buybackAmt = +v; return;
     }
@@ -910,7 +1050,7 @@
     if (data && data.S) { S = data.S; U = Object.assign(U, data.U || {}, { toasts: [] }); }
     else {
       const saved = load();
-      if (saved && saved.v === 1) { S = saved; U.setup = null; }
+      if (saved && saved.v === 1) { S = saved; U.setup = null; if (S.co) GC.compat(S.co); }
       else U.setup = newSetup();
     }
     render();

@@ -180,7 +180,7 @@
     {
       id: 'snacks', name: 'Snack Foods', sector: 'Consumer packaged goods', capital: 'Low',
       blurb: 'Start with a co-packer making one chip, fight for shelf space, then build your own plants.',
-      reach: { mode: 'sales', base: 0, perRep: 1.2e6, init: 0.12, max: 0.92 }, shareCap: 0.5, cpp: 9, decay: 0.03,
+      reach: { mode: 'sales', base: 0, perRep: 6e5, init: 0.12, max: 0.95, channels: true }, shareCap: 0.5, cpp: 9, decay: 0.03,
       lag: 1, cyc: 0.3, retail: false, freightShare: 0.35, qDecay: 0.12, freightSens: 1, storable: true,
       wages: { ops: 46000, rd: 95000 }, opsName: 'Plant crew', rdName: 'Food scientists', rdPerM: 0.12, revMult: 1.8, ebitdaMult: 12,
       regionCost: [0, 40000, 2500000, 6000000], regionNote: ['', 'Slotting fees & distributor onboarding', 'National broker network & slotting', 'Import registration & distributors'],
@@ -201,7 +201,7 @@
     {
       id: 'beverage', name: 'Beverages', sector: 'Consumer packaged goods', capital: 'Low–Medium',
       blurb: 'Craft soda first, then energy drinks and cold brew. Cans, sugar and CO2 drive your cost.',
-      reach: { mode: 'sales', base: 0, perRep: 1.5e6, init: 0.12, max: 0.92 }, shareCap: 0.45, cpp: 10, decay: 0.03,
+      reach: { mode: 'sales', base: 0, perRep: 7e5, init: 0.12, max: 0.95, channels: true }, shareCap: 0.45, cpp: 10, decay: 0.03,
       lag: 1, cyc: 0.35, retail: false, freightShare: 0.55, qDecay: 0.12, freightSens: 1, storable: true,
       wages: { ops: 47000, rd: 95000 }, opsName: 'Plant crew', rdName: 'Beverage R&D', rdPerM: 0.1, revMult: 2.2, ebitdaMult: 14,
       regionCost: [0, 50000, 3000000, 7000000], regionNote: ['', 'Distributor agreements', 'National DSD & slotting', 'Export registration'],
@@ -222,7 +222,7 @@
     {
       id: 'beauty', name: 'Beauty & Personal Care', sector: 'Consumer packaged goods', capital: 'Low',
       blurb: 'Reef-safe sunscreen, then skincare and haircare. High gross margins, expensive customer acquisition.',
-      reach: { mode: 'sales', base: 0.05, perRep: 1.5e6, init: 0.15, max: 0.9 }, shareCap: 0.4, cpp: 12, decay: 0.035,
+      reach: { mode: 'sales', base: 0.03, perRep: 7e5, init: 0.12, max: 0.95, channels: true }, shareCap: 0.4, cpp: 12, decay: 0.035,
       lag: 1, cyc: 0.5, retail: false, freightShare: 0.2, qDecay: 0.15, freightSens: 0.6, storable: true,
       wages: { ops: 45000, rd: 105000 }, opsName: 'Fill & pack crew', rdName: 'Cosmetic chemists', rdPerM: 0.2, revMult: 3.0, ebitdaMult: 16,
       regionCost: [0, 40000, 2000000, 5000000], regionNote: ['', 'Retail onboarding', 'National retail + FDA OTC monograph compliance', 'EU/Asia registration'],
@@ -243,7 +243,7 @@
     {
       id: 'apparel', name: 'Apparel & Footwear', sector: 'Consumer packaged goods', capital: 'Low–Medium',
       blurb: 'Resortwear, then activewear and sneakers. Fabric, sewing labor and tariffs decide your margins.',
-      reach: { mode: 'sales', base: 0.05, perRep: 1.2e6, init: 0.12, max: 0.9 }, shareCap: 0.4, cpp: 12, decay: 0.035,
+      reach: { mode: 'sales', base: 0.03, perRep: 6e5, init: 0.12, max: 0.95, channels: true }, shareCap: 0.4, cpp: 12, decay: 0.035,
       lag: 1, cyc: 1.0, retail: false, freightShare: 0.2, qDecay: 0.2, freightSens: 0.5, storable: true,
       wages: { ops: 40000, rd: 100000 }, opsName: 'Sewing & warehouse staff', rdName: 'Designers', rdPerM: 0.15, revMult: 1.6, ebitdaMult: 11,
       regionCost: [0, 40000, 2200000, 5500000], regionNote: ['', 'Boutique & department store accounts', 'National wholesale + e-commerce fulfillment', 'International distributors'],
@@ -283,7 +283,7 @@
       ]
     },
     {
-      id: 'saas', name: 'B2B Software (SaaS)', sector: 'Technology', capital: 'Low (but talent-hungry)',
+      id: 'saas', b2b: true, name: 'B2B Software (SaaS)', sector: 'Technology', capital: 'Low (but talent-hungry)',
       blurb: 'Ship an MVP to small businesses, climb to mid-market and enterprise. Engineers and churn are everything.',
       reach: { mode: 'sales', base: 0.3, perRep: 2.5e6, init: 0.3, max: 0.95 }, shareCap: 0.12, cpp: 8, decay: 0.03,
       lag: 0, cyc: 0.6, retail: false, freightShare: 0, qDecay: 0.45, freightSens: 0, storable: false, recurring: true,
@@ -317,7 +317,7 @@
     {
       id: 'electronics', name: 'Consumer Electronics', sector: 'Technology', capital: 'Medium',
       blurb: 'Earbuds built by a contract manufacturer, then smart-home and tablets. Chips, tariffs and Q4 decide the year.',
-      reach: { mode: 'sales', base: 0.05, perRep: 2e6, init: 0.1, max: 0.9 }, shareCap: 0.35, cpp: 12, decay: 0.035,
+      reach: { mode: 'sales', base: 0.03, perRep: 9e5, init: 0.1, max: 0.95, channels: true }, shareCap: 0.35, cpp: 12, decay: 0.035,
       lag: 1, cyc: 0.9, retail: false, freightShare: 0.15, qDecay: 0.4, freightSens: 0.4, storable: true,
       wages: { ops: 48000, rd: 145000 }, opsName: 'Assembly & test', rdName: 'Hardware engineers', rdPerM: 0.5, revMult: 2.2, ebitdaMult: 14,
       regionCost: [0, 50000, 3000000, 6000000], regionNote: ['', 'Retail accounts', 'Big-box & Amazon national + FCC certification', 'CE marking & distributors'],
@@ -439,7 +439,7 @@
       ]
     },
     {
-      id: 'logistics', name: 'Trucking & Logistics', sector: 'Transportation', capital: 'Medium',
+      id: 'logistics', b2b: true, name: 'Trucking & Logistics', sector: 'Transportation', capital: 'Medium',
       blurb: 'A box truck and a van, then truck fleets, a terminal network and last-mile delivery. Diesel and drivers are the business.',
       reach: { mode: 'sales', base: 0.05, perRep: 1e6, init: 0.12, max: 0.9 }, shareCap: 0.35, cpp: 10, decay: 0.03,
       lag: 1, cyc: 1.0, retail: false, freightShare: 0, qDecay: 0.12, freightSens: 0, storable: false,
@@ -460,7 +460,7 @@
       ]
     },
     {
-      id: 'datacenter', name: 'Cloud & AI Data Centers', sector: 'Technology', capital: 'Very high',
+      id: 'datacenter', b2b: true, name: 'Cloud & AI Data Centers', sector: 'Technology', capital: 'Very high',
       blurb: 'Resell rented GPUs, then run your own cages, data halls and a hyperscale campus. Electricity prices make or break you.',
       reach: { mode: 'sales', base: 0.2, perRep: 6e6, init: 0.2, max: 0.95 }, shareCap: 0.3, cpp: 8, decay: 0.03,
       lag: 1, cyc: 0.5, retail: false, freightShare: 0, qDecay: 0.3, freightSens: 0, storable: false, siteAnywhere: true,
@@ -514,5 +514,201 @@
     datacenter: ['Compute', 'Data Centers', 'Digital Infrastructure', 'AI Cloud']
   };
 
-  G.GC_DATA = { CITIES, COMMODITIES, SUPPLIER_TYPES, INDUSTRIES, BACKGROUNDS, ROUNDS, MONTHS, COMPANY_WORDS };
+
+  // ---------- Marketing channels ----------
+  // base = awareness bought per dollar at low spend; sat = how fast the channel saturates (higher = scales further);
+  // min = spend below which the channel barely works; regions = which markets it can reach.
+  const MKT_CHANNELS = [
+    { id: 'social', name: 'Social media ads', b2bName: 'LinkedIn & digital ads', base: 1.15, sat: 1.0, blurb: 'Instagram, TikTok, Facebook. Efficient at small budgets, saturates as you scale.' },
+    { id: 'influencer', name: 'Influencers & creators', base: 1.3, sat: 0.45, consumer: true, blurb: 'Gifting and paid posts. Cheap awareness with a small chance of going viral.' },
+    { id: 'search', name: 'Search & marketplace ads', base: 0.6, sat: 0.8, blurb: 'Captures people already looking. Lifts conversion as well as awareness.' },
+    { id: 'sampling', name: 'Sampling, events & festival booths', b2bName: 'Demos & customer events', base: 1.6, sat: 0.6, regions: [0, 1], blurb: 'Hands product to people. Strong locally, also helps you win retail accounts.' },
+    { id: 'outdoor', name: 'Billboards, radio & print', base: 0.9, sat: 1.6, blurb: 'Broad local reach, slow to build.' },
+    { id: 'tv', name: 'TV & streaming', base: 1.6, sat: 5, min: 40000, consumer: true, blurb: 'The most efficient channel at scale; wasted below about $40K a month.' },
+    { id: 'trade', name: 'Trade shows & buyer meetings', base: 0.35, b2bBase: 1.3, sat: 0.7, blurb: 'Where retail buyers and B2B customers shop. Raises your odds of landing accounts.' },
+    { id: 'pr', name: 'PR & sponsorships', base: 0.8, sat: 0.8, blurb: 'Surf contests, charity runs, press. Makes customers see your products as higher quality.' }
+  ];
+  const MKT_PRESETS = {
+    local: { name: 'Bootstrap locally', mix: { social: 0.45, sampling: 0.35, influencer: 0.2 } },
+    tourist: { name: 'Visitor season push', mix: { outdoor: 0.3, sampling: 0.25, influencer: 0.2, social: 0.15, pr: 0.1 } },
+    retail: { name: 'Win retail buyers', mix: { trade: 0.35, sampling: 0.3, social: 0.2, pr: 0.15 } },
+    national: { name: 'National launch', mix: { tv: 0.35, social: 0.2, search: 0.2, influencer: 0.1, pr: 0.15 } },
+    b2b: { name: 'B2B pipeline', mix: { trade: 0.4, search: 0.3, social: 0.3 } }
+  };
+
+  // ---------- Retail accounts (consumer products) ----------
+  // cover = share of that market's population the account puts you in front of; mult = price you realize vs your
+  // wholesale list price; slot = one-time slotting/onboarding; fee = monthly cost; minQ = quality the buyer demands;
+  // chance = base odds a pitch succeeds; lag = extra months before they pay; tour = coverage grows with visitors.
+  const CPG = ['snacks', 'beverage', 'beauty', 'apparel', 'electronics'];
+  const ACCOUNTS = [
+    { id: 'markets', region: 0, name: 'Farmers markets & craft fairs', hnl: 'Farmers markets & craft fairs (Kakaʻako, KCC, Haleʻiwa)', cover: 0.02, mult: 1.8, fee: 400, slot: 0, minQ: 0, chance: 1, inds: CPG, note: 'You sell at retail price, in person. Tiny volume.' },
+    { id: 'boutique', region: 0, name: 'Surf, gift & boutique shops (25 stores)', hnl: 'North Shore & Waikiki surf and gift shops (25 stores)', cover: 0.05, mult: 0.95, fee: 0, slot: 2000, minQ: 45, chance: 0.65, inds: CPG },
+    { id: 'hotels', region: 0, name: 'Resort hotel gift shops (12 resorts)', hnl: 'Waikiki & Ko Olina resort gift shops (12 resorts)', cover: 0.05, tour: true, mult: 1.1, fee: 1200, slot: 0, minQ: 58, chance: 0.5, inds: CPG, note: 'Hotels pay well, want premium quality, and need product-liability insurance.' },
+    { id: 'amenity', region: 0, name: 'Hotel amenity contract (in-room products)', cover: 0.07, tour: true, mult: 0.7, fee: 0, slot: 5000, minQ: 55, chance: 0.4, inds: ['beauty', 'snacks', 'beverage'], note: 'Big volume at a bulk discount: your product in every room or minibar.' },
+    { id: 'gyms', region: 0, name: 'Gyms, yoga studios & surf schools', cover: 0.03, mult: 1.0, fee: 0, slot: 0, minQ: 50, chance: 0.6, inds: ['snacks', 'beverage', 'apparel', 'beauty'] },
+    { id: 'airport', region: 0, name: 'Airport shops', hnl: 'Airport shops (HNL & neighbor-island airports)', cover: 0.03, tour: true, mult: 1.12, fee: 2500, slot: 5000, minQ: 60, chance: 0.4, inds: CPG },
+    { id: 'conv', region: 0, name: 'Convenience chain (90 stores)', hnl: 'Island convenience chain (90 stores)', cover: 0.14, tour: true, mult: 0.9, fee: 0, slot: 15000, minQ: 50, chance: 0.5, lag: 0.5, inds: ['snacks', 'beverage', 'beauty', 'electronics'] },
+    { id: 'grocery', region: 0, name: 'Local grocery chain (35 stores)', cover: 0.18, mult: 0.88, fee: 0, slot: 40000, minQ: 55, chance: 0.45, lag: 0.5, inds: ['snacks', 'beverage', 'beauty'] },
+    { id: 'dept', region: 0, name: 'Department store', cover: 0.08, mult: 0.85, fee: 0, slot: 20000, minQ: 60, chance: 0.45, lag: 1, inds: ['apparel', 'beauty', 'electronics'] },
+    { id: 'stateChain', region: 1, name: 'Statewide grocery & drug chain', cover: 0.3, mult: 0.86, fee: 0, slot: 120000, minQ: 58, chance: 0.4, lag: 0.5, inds: ['snacks', 'beverage', 'beauty'] },
+    { id: 'distributor', region: 1, name: 'Regional distributor (direct store delivery)', cover: 0.25, mult: 0.78, fee: 0, slot: 25000, minQ: 50, chance: 0.55, inds: ['snacks', 'beverage'] },
+    { id: 'regionalRetail', region: 1, name: 'Regional retail chain', cover: 0.2, mult: 0.85, fee: 0, slot: 60000, minQ: 58, chance: 0.45, lag: 0.5, inds: ['apparel', 'electronics', 'beauty'] },
+    { id: 'amazon', region: 2, name: 'Amazon & online marketplaces', cover: 0.15, mult: 0.85, varAdd: 0.08, fee: 3000, slot: 10000, minQ: 50, chance: 0.9, inds: CPG, note: 'Marketplace and fulfillment fees eat into margin.' },
+    { id: 'natural', region: 2, name: 'National natural-foods distributor', cover: 0.12, mult: 0.8, fee: 0, slot: 150000, minQ: 60, chance: 0.45, lag: 0.5, inds: ['snacks', 'beverage', 'beauty'] },
+    { id: 'drugNat', region: 2, name: 'National drugstore chains', cover: 0.25, mult: 0.84, fee: 0, slot: 300000, minQ: 60, chance: 0.4, lag: 1, inds: ['beauty', 'snacks', 'beverage'] },
+    { id: 'specialty', region: 2, name: 'National specialty retailers', cover: 0.15, mult: 0.9, fee: 0, slot: 100000, minQ: 68, chance: 0.4, lag: 0.5, inds: ['beauty', 'apparel', 'electronics'] },
+    { id: 'bigbox', region: 2, name: 'National big-box retailer (4,000 stores)', cover: 0.35, mult: 0.82, fee: 0, slot: 500000, minQ: 62, chance: 0.35, lag: 1, inds: CPG, note: 'Huge volume, thin margins, net-60 terms. Can you supply it?' },
+    { id: 'asia', region: 3, name: 'Japan & Asia-Pacific distributor', cover: 0.08, mult: 0.75, fee: 0, slot: 200000, minQ: 65, chance: 0.4, lag: 1, inds: CPG },
+    { id: 'dutyfree', region: 3, name: 'Duty-free & travel retail', cover: 0.05, mult: 1.0, fee: 4000, slot: 80000, minQ: 65, chance: 0.4, lag: 1, inds: CPG }
+  ];
+
+  // ---------- Your own retail ----------
+  // cover = people a location serves; months = limited run (pop-ups); retail price ≈ 2× your wholesale list price.
+  const STOREFRONTS = [
+    { id: 'popup', name: 'Pop-up shop (3-month run)', capex: 8000, monthly: 3500, cover: 30000, months: 3, aw: 0.01, blurb: 'Test a neighborhood or a busy season cheaply.' },
+    { id: 'kiosk', name: 'Mall kiosk', capex: 30000, monthly: 7000, cover: 50000, blurb: 'Low-cost permanent spot in a busy mall.' },
+    { id: 'store', name: 'Street storefront', capex: 180000, monthly: 16000, cover: 120000, blurb: 'Your own shop: full retail price, your own staff and lease.' },
+    { id: 'flagship', name: 'Flagship store', capex: 900000, monthly: 48000, cover: 350000, aw: 0.03, blurb: 'A destination store that builds the brand as well as selling.' }
+  ];
+  const WEBSTORE = { setup: 8000, monthly: 600, mult: 1.9, varAdd: 0.45 };
+
+  // ---------- Supply partnerships with local farms & producers ----------
+  // A partner sells you at a stable premium, almost never misses, caps how much it can supply, and lets you
+  // claim "locally grown" (quality + home-market demand).
+  const FARM_INPUTS = {
+    _all: ['produce', 'dairy'],
+    honolulu: ['macnut', 'coffee', 'produce', 'fish', 'dairy', 'glycerin'],
+    losangeles: ['produce', 'dairy'], sanfrancisco: ['produce', 'dairy', 'coffee'], seattle: ['produce', 'potato', 'dairy'],
+    austin: ['beef', 'produce'], houston: ['beef', 'chicken', 'rice'], midland: ['beef'], okc: ['beef', 'flour'], denver: ['beef', 'potato'],
+    phoenix: ['produce'], chicago: ['flour', 'potato', 'dairy'], detroit: ['potato', 'dairy'], pittsburgh: ['dairy'],
+    atlanta: ['chicken', 'produce'], nashville: ['chicken', 'beef'], miami: ['produce', 'sugar'], boston: ['dairy', 'fish'], newyork: ['dairy', 'produce']
+  };
+  const FARM_NAMES = { macnut: 'Big Island macadamia orchard', coffee: 'Kona coffee farm', produce: 'family vegetable farm', fish: 'longline fishing co-op', dairy: 'family dairy', potato: 'potato grower', beef: 'cattle ranch', chicken: 'poultry farm', rice: 'rice farm', flour: 'wheat farm & mill', sugar: 'cane sugar farm', glycerin: 'kukui & coconut oil grower' };
+
+  // ---------- Product development ----------
+  // Ingredient grades: pick cheap or elevated for each input. mult = price paid vs. standard; q = quality points
+  // contributed (weighted by how much of a product's cost that input is; packaging counts half).
+  const TIERS = { budget: { name: 'Budget', mult: 0.8, q: -12 }, standard: { name: 'Standard', mult: 1, q: 0 }, elevated: { name: 'Elevated', mult: 1.45, q: 12 } };
+  const TIER_NAMES = {
+    actives: ['Generic zinc oxide', 'Cosmetic-grade zinc oxide', 'Non-nano coated zinc + botanical extracts'],
+    glycerin: ['Industrial glycerin & mineral oil', 'USP glycerin & carrier oils', 'Organic kukui, coconut & jojoba oils'],
+    jars: ['Thin plastic tubes', 'Standard tubes & pumps', 'Recyclable aluminum & glass'],
+    potato: ['Commodity potatoes', 'Chipping potatoes', 'Heirloom, hand-sorted potatoes'],
+    vegoil: ['Palm-oil blend', 'Canola oil', 'Avocado oil'],
+    sugar: ['Beet-sugar blend', 'Cane sugar', 'Organic raw cane sugar'],
+    cocoa: ['Bulk West African cocoa', 'Fair-trade cocoa', 'Single-origin fine-flavor cocoa'],
+    macnut: ['Pieces & seconds', 'Standard kernels', 'Whole style-1 kernels'],
+    coffee: ['Robusta blend', 'Specialty arabica', '100% Kona micro-lots'],
+    flour: ['Bleached all-purpose', 'Unbleached flour', 'Organic stone-ground'],
+    dairy: ['Conventional milk', 'Local fresh milk', 'Organic grass-fed milk'],
+    beef: ['80/20 commodity beef', 'USDA Choice', 'Grass-fed local beef'],
+    chicken: ['Commodity chicken', 'Antibiotic-free chicken', 'Pasture-raised chicken'],
+    fish: ['Frozen imported fish', 'Fresh ahi', 'Day-boat, sashimi-grade ahi'],
+    produce: ['Mainland bulk produce', 'Fresh standard produce', 'Local organic produce'],
+    rice: ['Broken / bulk rice', 'Calrose rice', 'Premium short-grain rice'],
+    cotton: ['Basic cotton', 'Combed cotton', 'Organic Pima & rayon prints'],
+    poly: ['Basic polyester', 'Performance knit', 'Recycled premium knit'],
+    trims: ['Plastic buttons & generic labels', 'Standard trims', 'Coconut-shell buttons & woven labels'],
+    soles: ['Basic EVA soles', 'Standard rubber soles', 'Premium foam & leather uppers'],
+    flavor: ['Artificial flavors', 'Natural flavors', 'Cold-pressed fruit & botanicals'],
+    co2: ['Industrial-grade CO2', 'Beverage-grade CO2', 'Beverage-grade CO2'],
+    alcan: ['Thin-wall cans', 'Standard cans', 'Sleek cans with premium print'],
+    glass: ['Thin glass', 'Standard bottles', 'Heavy premium glass'],
+    film: ['Basic film', 'Standard barrier film', 'Compostable premium film'],
+    carton: ['Plain cartons', 'Printed cartons', 'Recycled display-ready cartons'],
+    semis: ['Budget chipsets', 'Mainstream chipsets', 'Flagship chipsets'],
+    display: ['Basic LCD', 'IPS panels', 'OLED panels'],
+    cells: ['Second-tier cells', 'Tier-1 cells', 'Top-tier high-density cells'],
+    pcb: ['Budget boards & plastics', 'Standard boards', 'Premium boards & aluminum housings'],
+    modules: ['Tier-3 panels', 'Tier-1 panels', 'High-efficiency premium panels'],
+    inverter: ['Budget inverters', 'Mainstream inverters', 'Premium microinverters'],
+    racking: ['Basic racking', 'Standard racking', 'Hurricane-rated racking'],
+    steel: ['Commodity steel', 'Automotive steel', 'High-strength steel'],
+    aluminum: ['Recycled-grade aluminum', 'Standard aluminum', 'Aerospace-grade aluminum'],
+    copper: ['Standard copper', 'Standard copper', 'High-purity copper']
+  };
+  // Improvement projects per product (id-specific) or per industry (applies to every product). cost in $, months to
+  // complete, q = quality points gained, mat = multiplier on materials per unit, demand = permanent demand lift.
+  const UPGRADES = {
+    sunscreen: [
+      { id: 'reefsafe', name: 'Reformulate with non-nano zinc oxide', desc: 'Reef-safe and compliant with Hawaii\'s oxybenzone/octinoxate ban. Customers in Hawaii look for it.', cost: 40000, months: 2, q: 6, mat: 1.08, demandHome: 1.08 },
+      { id: 'spf50', name: 'SPF 50 + 80-minute water-resistance testing', desc: 'FDA-protocol lab testing so you can put it on the label.', cost: 65000, months: 3, q: 7 },
+      { id: 'sheer', name: 'Sheer, non-whitening texture', desc: 'Dispersion R&D so mineral sunscreen stops leaving a white cast. The biggest complaint about the category.', cost: 90000, months: 4, q: 9, rd: 60 },
+      { id: 'derm', name: 'Dermatologist clinical study', desc: 'Sensitive-skin and pediatric testing with a published result.', cost: 150000, months: 5, q: 5, demand: 1.05 },
+      { id: 'tube', name: 'Recyclable aluminum tube', desc: 'Plastic-free packaging. Costs more per unit.', cost: 35000, months: 2, q: 3, mat: 1.06 }
+    ],
+    _beauty: [
+      { id: 'clinical', name: 'Clinical efficacy testing', desc: 'Third-party testing of your claims.', cost: 80000, months: 3, q: 6 },
+      { id: 'clean', name: 'Clean reformulation', desc: 'Remove controversial ingredients; costs more to make.', cost: 50000, months: 3, q: 5, mat: 1.1 },
+      { id: 'qa', name: 'In-house QA lab & batch testing', desc: 'Catch problems before they ship.', cost: 40000, months: 2, q: 4 }
+    ],
+    _snacks: [
+      { id: 'nongmo', name: 'Non-GMO & organic certification', desc: 'Certified ingredients cost more but shoppers pay for them.', cost: 45000, months: 4, q: 6, mat: 1.12 },
+      { id: 'process', name: 'Process upgrade (kettle, roasting, tempering)', desc: 'Better texture and flavor consistency.', cost: 70000, months: 3, q: 7, rd: 40 },
+      { id: 'shelf', name: 'Shelf-life & packaging redesign', desc: 'Nitrogen flush and better film: fresher product, fewer returns.', cost: 35000, months: 2, q: 4, mat: 1.03 },
+      { id: 'sqf', name: 'SQF food-safety certification', desc: 'Many grocery buyers require it.', cost: 30000, months: 3, q: 4 }
+    ],
+    _beverage: [
+      { id: 'flavor', name: 'Flavor reformulation with a flavor house', desc: 'Consumer-tested recipes.', cost: 60000, months: 3, q: 7 },
+      { id: 'lowsugar', name: 'Low-sugar recipe', desc: 'Cuts sugar with natural sweeteners. Growing demand.', cost: 50000, months: 3, q: 5, demand: 1.05 },
+      { id: 'cane', name: 'Real cane sugar & natural flavors', desc: 'Premium ingredients cost more.', cost: 25000, months: 2, q: 5, mat: 1.1 },
+      { id: 'sqf', name: 'SQF food-safety certification', desc: 'Many grocery buyers require it.', cost: 30000, months: 3, q: 4 }
+    ],
+    _apparel: [
+      { id: 'fabric', name: 'Higher-grade fabric', desc: 'Better hand-feel and durability; costs more.', cost: 30000, months: 2, q: 7, mat: 1.15 },
+      { id: 'fit', name: 'Fit & pattern re-engineering', desc: 'Fewer returns, better reviews.', cost: 55000, months: 3, q: 6 },
+      { id: 'local', name: 'Collaboration with a local artist', desc: 'Limited prints that sell out.', cost: 25000, months: 2, q: 4, demandHome: 1.08 }
+    ],
+    _electronics: [
+      { id: 'battery', name: 'Battery life and power redesign', desc: 'Longer runtime, better reviews.', cost: 150000, months: 4, q: 7, rd: 80 },
+      { id: 'audio', name: 'Industrial design refresh', desc: 'Better look and feel.', cost: 120000, months: 4, q: 6 },
+      { id: 'qa', name: 'Reliability testing & QA', desc: 'Lower return rates.', cost: 80000, months: 3, q: 5 }
+    ],
+    _restaurants: [
+      { id: 'chef', name: 'Hire a name chef to redo the menu', desc: 'Better food, better reviews.', cost: 60000, months: 2, q: 8 },
+      { id: 'local', name: 'Locally sourced menu', desc: 'Costs more per plate; diners love it.', cost: 20000, months: 2, q: 5, mat: 1.1, demandHome: 1.05 },
+      { id: 'service', name: 'Service training program', desc: 'Faster lines, friendlier staff.', cost: 30000, months: 2, q: 4 }
+    ],
+    _saas: [
+      { id: 'ux', name: 'UX redesign', desc: 'Easier onboarding, lower churn.', cost: 150000, months: 4, q: 7 },
+      { id: 'ai', name: 'AI assistant features', desc: 'What every buyer is asking for.', cost: 250000, months: 5, q: 8, rd: 100 },
+      { id: 'soc2', name: 'Security & uptime program', desc: 'SOC 2, redundancy, on-call.', cost: 120000, months: 4, q: 5 }
+    ],
+    _fintech: [
+      { id: 'ux', name: 'App redesign', desc: 'Faster, clearer, fewer support tickets.', cost: 150000, months: 4, q: 7 },
+      { id: 'fraud', name: 'Fraud & risk models', desc: 'Lower losses and fewer frozen accounts.', cost: 200000, months: 5, q: 6 }
+    ],
+    _solar: [
+      { id: 'panels', name: 'Premium high-efficiency panels', desc: 'Better yield per roof; costs more.', cost: 20000, months: 1, q: 6, mat: 1.1 },
+      { id: 'design', name: 'Remote design & permitting software', desc: 'Faster, cleaner installs.', cost: 120000, months: 4, q: 6 },
+      { id: 'warranty', name: '25-year workmanship warranty', desc: 'Customers trust you more.', cost: 60000, months: 2, q: 4, demand: 1.04 }
+    ],
+    _ev: [
+      { id: 'range', name: 'Battery & motor efficiency', desc: 'More range per kWh.', cost: 400000, months: 6, q: 8, rd: 150 },
+      { id: 'design', name: 'Design & fit-and-finish', desc: 'Better reviews and resale.', cost: 250000, months: 4, q: 6 }
+    ],
+    _airline: [
+      { id: 'ontime', name: 'On-time performance program', desc: 'Spare parts, crew buffers, better ops control.', cost: 300000, months: 3, q: 7 },
+      { id: 'cabin', name: 'Cabin refresh & local hospitality', desc: 'New seats, Hawaiian-style service.', cost: 500000, months: 4, q: 6, demandHome: 1.05 }
+    ],
+    _logistics: [
+      { id: 'telematics', name: 'Telematics & route optimization', desc: 'Faster, more reliable delivery.', cost: 200000, months: 4, q: 7 },
+      { id: 'safety', name: 'Driver safety program', desc: 'Fewer accidents, better shipper ratings.', cost: 80000, months: 3, q: 5 }
+    ],
+    _datacenter: [
+      { id: 'network', name: 'InfiniBand networking upgrade', desc: 'Faster training jobs for customers.', cost: 500000, months: 3, q: 7 },
+      { id: 'sla', name: '99.99% uptime SLA', desc: 'Redundant power and cooling.', cost: 300000, months: 4, q: 6 }
+    ],
+    _power: [
+      { id: 'trackers', name: 'Single-axis trackers & bifacial panels', desc: 'More output from every site.', cost: 250000, months: 4, q: 8 },
+      { id: 'om', name: 'Predictive maintenance', desc: 'Less downtime.', cost: 120000, months: 3, q: 5 }
+    ],
+    _oilgas: [
+      { id: 'completion', name: 'Longer laterals & completion design', desc: 'Higher initial production from new wells.', cost: 400000, months: 4, q: 8 },
+      { id: 'artificial', name: 'Artificial lift optimization', desc: 'Slows decline on existing wells.', cost: 200000, months: 3, q: 5 }
+    ]
+  };
+
+  G.GC_DATA = { MKT_CHANNELS, MKT_PRESETS, ACCOUNTS, STOREFRONTS, WEBSTORE, FARM_INPUTS, FARM_NAMES, TIERS, TIER_NAMES, UPGRADES, CITIES, COMMODITIES, SUPPLIER_TYPES, INDUSTRIES, BACKGROUNDS, ROUNDS, MONTHS, COMPANY_WORDS };
 })(typeof window !== 'undefined' ? window : globalThis);
