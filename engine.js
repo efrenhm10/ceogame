@@ -143,7 +143,7 @@
     }
     return co;
   }
-  function newAcc() { return { recruit: 0, severance: 0, launch: 0, expansion: 0, events: 0, otherInc: 0, capex: 0, assetSales: 0, prepaid: 0 }; }
+  function newAcc() { return { recruit: 0, severance: 0, launch: 0, expansion: 0, events: 0, eventsCash: 0, otherInc: 0, capex: 0, assetSales: 0, prepaid: 0, fin: 0, repaid: 0 }; }
 
   function usedCommodities(ind) {
     const set = new Set();
@@ -450,7 +450,8 @@
     const isPT = !!ind.priceTaker;
     const st = { rev: 0, revBy: {}, units: {}, cogsMat: 0, cogsToll: 0, cogsEnergy: 0, cogsVar: 0, cogsRoy: 0, cogsLabor: 0, cogsSite: 0, cogsSpoil: 0, cogsFuel: 0 };
     const cashOut = { purchasesPrepay: 0 };
-    let apNew = 0, tollPaid = 0;
+    let apNew = 0, tollPaid = 0, expediteCash = 0;
+    const cashStart = co.hist.length ? co.hist[co.hist.length - 1].cash : co.cash + acc.capex + acc.recruit + acc.launch + acc.expansion + acc.eventsCash - acc.fin;
     acc.otherInc += fxAdd(co, 'subsidy');
 
     // 1. Construction & depreciation
@@ -513,7 +514,7 @@
         const alt = m.prevSup && m.prevSup !== 'F' ? m.prevSup : defaultSupplier(c, city);
         const at = supplierTerms(s, co, c, alt), au = buyPrice(s, co, c, alt);
         const eta2 = s.month + at.lead;
-        if (at.terms === 'prepay') { co.cash -= extra * au; }
+        if (at.terms === 'prepay') { co.cash -= extra * au; cashOut.purchasesPrepay += extra * au; }
         if (eta2 <= s.month) { m.qty += extra; m.val += extra * au; if (at.terms === 'net30') apNew += extra * au; }
         else m.orders.push({ qty: extra, unit: au, eta: eta2, terms: at.terms, sup: alt, placed: s.month });
       }
@@ -638,7 +639,7 @@
           const unit = Math.max(...supplierOptions(s, co, c).filter(t => t !== 'V' && t !== 'F').map(t => supplierTerms(s, co, c, t).price)) * tierOf(co, c).mult * 1.4;
           const short = r - m.qty;
           const q = Math.min(short, Math.max(0, co.cash) / unit);
-          if (q > 0) { m.qty += q; m.val += q * unit; co.cash -= q * unit; expedite += q * unit; m.expedited = (m.expedited || 0) + q; }
+          if (q > 0) { m.qty += q; m.val += q * unit; co.cash -= q * unit; expedite += q * unit; expediteCash += q * unit; m.expedited = (m.expedited || 0) + q; }
         }
         ratio[c] = r > 0 ? Math.min(1, m.qty / r) : 1;
         if (ratio[c] < 0.999) matLimited[c] = true;
@@ -988,7 +989,18 @@
     const ppe = co.facilities.reduce((a, f) => a + (f.status === 'active' ? f.book : f.paid), 0) + co.assets.reduce((a, x) => a + x.book, 0);
     const debt = co.loans.reduce((a, l) => a + l.bal, 0);
 
+    // cash flow, direct view: every dollar in and out this month
+    const outs = {
+      payroll: opsPay + otherPay, suppliers: apPrev + cashOut.purchasesPrepay + expediteCash, contract: tollPaid, sites: st.cogsSite, energy: st.cogsEnergy,
+      freight: st.cogsVar + st.cogsRoy, marketing: co.marketing, channels: chanCost, overhead: office + gaOther + grt + regionUpkeep,
+      oneTime: acc.recruit + acc.severance + acc.launch + acc.expansion + acc.eventsCash, capex: acc.capex, interest, principal: principal + acc.repaid, tax
+    };
+    const ins = { customers: collections, financing: acc.fin, other: acc.otherInc + acc.assetSales };
+    const cashDelta = co.cash - cashStart;
+    const known = Object.values(ins).reduce((a, x) => a + x, 0) - Object.values(outs).reduce((a, x) => a + x, 0);
+    const cf = { start: cashStart, end: co.cash, ins, outs, other: cashDelta - known, expedite: expediteCash };
     const h = Object.assign(st, {
+      cf,
       m: s.month, cogs, gp: st.rev - cogs, opPay: otherPay, opMkt: co.marketing, opChan: chanCost, opOffice: office, opGA: gaOther + regionUpkeep, opGRT: grt, opOne: oneTime,
       oneDetail: { recruit: acc.recruit, severance: acc.severance, launch: acc.launch, expansion: acc.expansion, events: acc.events },
       opex, ebitda, dep, ebit, interest, otherInc: acc.otherInc, ebt, tax, ni, cash: co.cash, debt, ar: co.ar, ap: co.ap, inv: invVal, ppe,
@@ -1263,7 +1275,7 @@
     if (kind === 'revolver') return revolver(s, co, amt);
     const t = loanRate(s, co, kind);
     co.loans.push({ id: uid(s), kind, name: t.label, bal: amt, floating: t.floating, spread: t.spread, rate: t.rate, left: t.term, io: !!t.io, orig: amt, start: s.month });
-    co.cash += amt;
+    co.cash += amt; co.acc.fin += amt;
     if (kind === 'sba') co.sbaUsed = true;
     return null;
   }
@@ -1276,14 +1288,14 @@
   function revolver(s, co, amt) {
     let rv = co.loans.find(l => l.kind === 'revolver');
     if (!rv) { rv = { id: uid(s), kind: 'revolver', name: 'Revolving credit line', bal: 0, floating: true, spread: 1.5, left: 0, io: true }; co.loans.push(rv); }
-    rv.bal += amt; co.cash += amt;
+    rv.bal += amt; co.cash += amt; co.acc.fin += amt;
     return null;
   }
   function repayLoan(s, co, id, amt) {
     const l = co.loans.find(x => x.id === id);
     if (!l) return;
     amt = Math.min(amt, l.bal, Math.max(0, co.cash));
-    l.bal -= amt; co.cash -= amt;
+    l.bal -= amt; co.cash -= amt; co.acc.repaid += amt;
     if (l.bal <= 1 && l.kind !== 'revolver') co.loans = co.loans.filter(x => x !== l);
   }
 
@@ -1334,7 +1346,7 @@
     co.shares.total += newShares;
     co.shares.investors.push({ name: t.investor, shares: newShares, round: t.name });
     co.cash += t.amount - fee;
-    co.acc.events += fee;
+    co.acc.events += fee; co.acc.eventsCash += fee; co.acc.fin += t.amount;
     co.rounds.push({ id: t.round, name: t.name, amount: t.amount, pre: t.pre, m: s.month });
     co.board.seats += t.board;
     co.board.expect = { ff: 0, angel: 0.05, seed: 0.15, a: 0.12, b: 0.09, c: 0.07, pe: 0.04, ipo: 0.03 }[t.round];
@@ -1376,13 +1388,13 @@
       const amt = Math.min(s.ceo.cash, o.personal);
       const val = Math.max(valuation(s, co).equity, 1e5);
       const ns = co.shares.total * amt / val;
-      co.shares.total += ns; co.shares.ceo += ns; s.ceo.cash -= amt; co.cash += amt; co.fundedBy += amt;
+      co.shares.total += ns; co.shares.ceo += ns; s.ceo.cash -= amt; co.cash += amt; co.fundedBy += amt; co.acc.fin += amt;
     }
     if (opt === 'downround' && o.downround) {
       const val = valuation(s, co).equity * 0.5;
       const ns = co.shares.total * o.downround / val;
       co.shares.total += ns; co.shares.investors.push({ name: 'Insider down-round', shares: ns, round: 'Emergency round' });
-      co.cash += o.downround; co.board.conf = clamp(co.board.conf - 15, 0, 100);
+      co.cash += o.downround; co.acc.fin += o.downround; co.board.conf = clamp(co.board.conf - 15, 0, 100);
     }
     if (opt === 'sell') sellFacility(s, co, arg);
     if (co.cash >= 0) co.crisis = null; else co.crisis = { deficit: -co.cash };
@@ -1645,15 +1657,15 @@
       title: (s, co) => `Hurricane heading for ${cityById[co.city].name}`,
       text: (s, co) => `Forecasters give a major hurricane a 40% chance of a direct hit in four days. You can shut down early, board up and move inventory to high ground, or keep operating and hope it turns.`,
       choices: [
-        { label: 'Shut down and prepare', hint: 'Lose about a week of output, pay for hardening', fx: (s, co) => { const cost = 15000 + revMo(co) * 0.05; co.cash -= cost; co.acc.events += cost; addFx(s, co, 'capacity', 0.78, 0); addFx(s, co, 'demand', 0.85, 0); return 'You lost a week but came through with minor damage.'; } },
-        { label: 'Keep operating', hint: 'Full output if it misses; serious damage if it hits', fx: (s, co) => { if (rand(s) < 0.4) { const dmg = 40000 + co.facilities.reduce((a, f) => a + f.book, 0) * 0.06; co.cash -= dmg; co.acc.events += dmg; addFx(s, co, 'capacity', 0.45, 1); addFx(s, co, 'demand', 0.7, 1); return `Direct hit. Damage costs ${fmt$(dmg)} and output is cut for two months.`; } return 'The storm turned away at the last minute. No damage.'; } }
+        { label: 'Shut down and prepare', hint: 'Lose about a week of output, pay for hardening', fx: (s, co) => { const cost = 15000 + revMo(co) * 0.05; co.cash -= cost; co.acc.events += cost; co.acc.eventsCash += cost; addFx(s, co, 'capacity', 0.78, 0); addFx(s, co, 'demand', 0.85, 0); return 'You lost a week but came through with minor damage.'; } },
+        { label: 'Keep operating', hint: 'Full output if it misses; serious damage if it hits', fx: (s, co) => { if (rand(s) < 0.4) { const dmg = 40000 + co.facilities.reduce((a, f) => a + f.book, 0) * 0.06; co.cash -= dmg; co.acc.events += dmg; co.acc.eventsCash += dmg; addFx(s, co, 'capacity', 0.45, 1); addFx(s, co, 'demand', 0.7, 1); return `Direct hit. Damage costs ${fmt$(dmg)} and output is cut for two months.`; } return 'The storm turned away at the last minute. No damage.'; } }
       ] },
     { id: 'freeze', w: 3, cond: (s, co) => { const c = cityById[co.city]; const m = calMonth(s.month); return (c.risk.freeze || 0) > 0 && (m === 0 || m === 1); }, title: 'Arctic blast knocks out power',
       text: (s, co) => `A deep freeze hits ${cityById[co.city].name}. Rolling blackouts close sites for days and natural-gas prices spike.`,
       auto: (s, co) => { addFx(s, co, 'capacity', 0.8, 0); s.macro.shocks.natgas = { mult: 1.8, until: s.month + 2 }; } },
     { id: 'quake', w: 2, cond: (s, co) => (cityById[co.city].risk.quake || 0) > 0 && rand(s) < 0.15, title: 'Earthquake shakes the region',
       text: () => 'A magnitude 6.4 earthquake damages roads and buildings. Your sites need inspections and repairs.',
-      auto: (s, co) => { const dmg = 25000 + co.facilities.reduce((a, f) => a + f.book, 0) * 0.03; co.cash -= dmg; co.acc.events += dmg; addFx(s, co, 'capacity', 0.85, 1); } },
+      auto: (s, co) => { const dmg = 25000 + co.facilities.reduce((a, f) => a + f.book, 0) * 0.03; co.cash -= dmg; co.acc.events += dmg; co.acc.eventsCash += dmg; addFx(s, co, 'capacity', 0.85, 1); } },
     { id: 'cocoa', w: 3, cond: (s, co) => has(co, 'cocoa'), title: 'West African cocoa harvest fails',
       text: () => 'Black-pod disease and drought in Côte d\'Ivoire and Ghana cut the crop again. Cocoa futures are surging and will stay high for most of a year.',
       auto: (s) => { s.macro.shocks.cocoa = { mult: 1.7, until: s.month + 9 }; } },
@@ -1692,8 +1704,8 @@
       title: (s, co, ctx) => `Quality problem with ${indById[co.ind].products.find(p => p.id === ctx).name.toLowerCase()}`,
       text: (s, co, ctx) => `QA traced several customer complaints to one supplier lot. ${co.ind === 'electronics' || co.ind === 'ev' ? 'A battery defect could cause overheating.' : 'Some units may be contaminated.'} A voluntary recall is expensive; staying quiet is a gamble.`,
       choices: [
-        { label: 'Voluntary recall', hint: 'Costly now, protects the brand', fx: (s, co, ctx) => { const ps = co.products[ctx]; const cost = 20000 + ps.rev * 0.6; co.cash -= cost; co.acc.events += cost; co.regions.forEach(r => r.aw *= 0.95); s.ceo.rep = clamp(s.ceo.rep + 1, 0, 100); return `The recall cost ${fmt$(cost)}. Regulators praised the quick response.`; } },
-        { label: 'Fix it quietly', hint: '60% nothing happens; 40% lawsuit and a news story', fx: (s, co, ctx) => { if (rand(s) < 0.4) { const cost = 150000 + co.products[ctx].rev * 3; co.cash -= cost; co.acc.events += cost; co.regions.forEach(r => r.aw *= 0.7); s.ceo.rep = clamp(s.ceo.rep - 8, 0, 100); return `It leaked. Lawsuits and a forced recall cost ${fmt$(cost)} and your brand took a hit.`; } return 'Nobody noticed. This time.'; } }
+        { label: 'Voluntary recall', hint: 'Costly now, protects the brand', fx: (s, co, ctx) => { const ps = co.products[ctx]; const cost = 20000 + ps.rev * 0.6; co.cash -= cost; co.acc.events += cost; co.acc.eventsCash += cost; co.regions.forEach(r => r.aw *= 0.95); s.ceo.rep = clamp(s.ceo.rep + 1, 0, 100); return `The recall cost ${fmt$(cost)}. Regulators praised the quick response.`; } },
+        { label: 'Fix it quietly', hint: '60% nothing happens; 40% lawsuit and a news story', fx: (s, co, ctx) => { if (rand(s) < 0.4) { const cost = 150000 + co.products[ctx].rev * 3; co.cash -= cost; co.acc.events += cost; co.acc.eventsCash += cost; co.regions.forEach(r => r.aw *= 0.7); s.ceo.rep = clamp(s.ceo.rep - 8, 0, 100); return `It leaked. Lawsuits and a forced recall cost ${fmt$(cost)} and your brand took a hit.`; } return 'Nobody noticed. This time.'; } }
       ] },
     { id: 'megamart', w: 3, cond: (s, co) => ['snacks', 'beverage', 'beauty', 'apparel', 'electronics'].includes(co.ind) && !co.regions[2].unlocked && co.regions[1].unlocked && revMo(co) > 60000 && !co.flagMega && !co.accounts.bigbox,
       title: 'A national big-box retailer wants you',
@@ -1709,7 +1721,7 @@
     { id: 'backlash', w: 2, cond: (s, co) => !indById[co.ind].priceTaker && revMo(co) > 50000, title: 'Social-media backlash',
       text: () => 'An old ad campaign resurfaced and is being called tone-deaf. You can apologize and donate, or ride it out.',
       choices: [
-        { label: 'Apologize and donate $50k', hint: 'Limits the damage', fx: (s, co) => { co.cash -= 50000; co.acc.events += 50000; co.regions.forEach(r => r.aw *= 0.97); return 'The story faded within a week.'; } },
+        { label: 'Apologize and donate $50k', hint: 'Limits the damage', fx: (s, co) => { co.cash -= 50000; co.acc.events += 50000; co.acc.eventsCash += 50000; co.regions.forEach(r => r.aw *= 0.97); return 'The story faded within a week.'; } },
         { label: 'Say nothing', hint: 'Free, but awareness drops', fx: (s, co) => { co.regions.forEach(r => r.aw *= 0.85); addFx(s, co, 'demand', 0.9, 2); return 'The story ran for two weeks and sales dipped.'; } }
       ] },
     { id: 'union', w: 3, cond: (s, co) => co.staff.ops >= 30 && co.morale < 58, title: (s, co) => `${indById[co.ind].opsName} are organizing a union`,
@@ -1717,19 +1729,19 @@
       choices: [
         { label: 'Recognize the union', hint: '+8% ops wages, morale up', fx: (s, co) => { addFx(s, co, 'opsWage', 1.08, Infinity); co.morale = clamp(co.morale + 15, 0, 98); return 'You signed a first contract. Morale improved.'; } },
         { label: 'Negotiate a raise without a union', hint: '+4% ops wages', fx: (s, co) => { addFx(s, co, 'opsWage', 1.04, Infinity); co.morale = clamp(co.morale + 5, 0, 98); return 'The organizing drive stalled after the raise.'; } },
-        { label: 'Fight it with consultants', hint: '$150k; 30% chance of a strike', fx: (s, co) => { co.cash -= 150000; co.acc.events += 150000; co.morale = clamp(co.morale - 15, 0, 98); if (rand(s) < 0.3) { addFx(s, co, 'capacity', 0.5, 0); return 'A one-month strike halved output.'; } return 'The vote failed, but resentment lingers.'; } }
+        { label: 'Fight it with consultants', hint: '$150k; 30% chance of a strike', fx: (s, co) => { co.cash -= 150000; co.acc.events += 150000; co.acc.eventsCash += 150000; co.morale = clamp(co.morale - 15, 0, 98); if (rand(s) < 0.3) { addFx(s, co, 'capacity', 0.5, 0); return 'A one-month strike halved output.'; } return 'The vote failed, but resentment lingers.'; } }
       ] },
     { id: 'poach', w: 3, cond: (s, co) => co.staff.rd >= 4, title: 'Your top engineer has an offer from a rival',
       text: (s, co) => `Your lead from the ${indById[co.ind].rdName.toLowerCase()} team has an offer from ${pick(s, indById[co.ind].competitors)} at 40% more.`,
       choices: [
-        { label: 'Counter-offer and retention grant', hint: 'Costs about a year of their salary', fx: (s, co) => { const c = salary(s, co, 'rd') * 12; co.cash -= c; co.acc.events += c; return 'They stayed.'; } },
+        { label: 'Counter-offer and retention grant', hint: 'Costs about a year of their salary', fx: (s, co) => { const c = salary(s, co, 'rd') * 12; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; return 'They stayed.'; } },
         { label: 'Let them go', hint: 'Product quality slips', fx: (s, co) => { for (const ps of Object.values(co.products)) if (ps.active) ps.q = Math.max(15, ps.q - 4); co.staff.rd = Math.max(0, co.staff.rd - 1); return 'They left and took some know-how with them.'; } }
       ] },
     { id: 'ransom', w: 2, cond: (s, co) => headcount(co) > 25, title: 'Ransomware attack',
       text: (s, co) => `Attackers encrypted ${co.name}'s ERP and order systems and want ${fmt$(Math.max(150000, revMo(co) * 0.5))} in bitcoin.`,
       choices: [
-        { label: 'Pay the ransom', hint: 'Back online in days (usually)', fx: (s, co) => { const c = Math.max(150000, revMo(co) * 0.5); co.cash -= c; co.acc.events += c; if (rand(s) < 0.2) { addFx(s, co, 'capacity', 0.7, 0); return 'You paid, and the decryptor only half worked.'; } return 'You paid. Systems are restored.'; } },
-        { label: 'Restore from backups', hint: 'Slower, no payment', fx: (s, co) => { const c = 60000 + revMo(co) * 0.08; co.cash -= c; co.acc.events += c; addFx(s, co, 'capacity', 0.75, 0); addFx(s, co, 'demand', 0.9, 0); return `Recovery took three weeks and cost ${fmt$(c)}.`; } }
+        { label: 'Pay the ransom', hint: 'Back online in days (usually)', fx: (s, co) => { const c = Math.max(150000, revMo(co) * 0.5); co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; if (rand(s) < 0.2) { addFx(s, co, 'capacity', 0.7, 0); return 'You paid, and the decryptor only half worked.'; } return 'You paid. Systems are restored.'; } },
+        { label: 'Restore from backups', hint: 'Slower, no payment', fx: (s, co) => { const c = 60000 + revMo(co) * 0.08; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; addFx(s, co, 'capacity', 0.75, 0); addFx(s, co, 'demand', 0.9, 0); return `Recovery took three weeks and cost ${fmt$(c)}.`; } }
       ] },
     { id: 'tourism_down', w: 3, cond: (s, co) => cityById[co.city].tourism >= 0.3 && indById[co.ind].tourismSens > 0, title: 'Tourism slump',
       text: (s, co) => `A strong dollar and an airfare spike have cut visitor arrivals to ${cityById[co.city].name}. Visitor-driven demand drops for several months.`,
@@ -1740,19 +1752,19 @@
     { id: 'privacy', w: 2, cond: (s, co) => ['saas', 'fintech', 'datacenter'].includes(co.ind) && revMo(co) > 50000, title: 'New data-privacy law',
       text: () => 'A sweeping new state privacy law takes effect. You can invest in compliance now or risk fines.',
       choices: [
-        { label: 'Invest in compliance', hint: 'One-time cost', fx: (s, co) => { const c = 80000 + revMo(co) * 0.4; co.cash -= c; co.acc.events += c; return `Compliance program cost ${fmt$(c)}.`; } },
-        { label: 'Do the minimum', hint: '35% chance of a large fine later', fx: (s, co) => { if (rand(s) < 0.35) { const c = 250000 + revMo(co) * 2; co.cash -= c; co.acc.events += c; s.ceo.rep = clamp(s.ceo.rep - 4, 0, 100); return `Regulators fined you ${fmt$(c)}.`; } return 'No enforcement action, for now.'; } }
+        { label: 'Invest in compliance', hint: 'One-time cost', fx: (s, co) => { const c = 80000 + revMo(co) * 0.4; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; return `Compliance program cost ${fmt$(c)}.`; } },
+        { label: 'Do the minimum', hint: '35% chance of a large fine later', fx: (s, co) => { if (rand(s) < 0.35) { const c = 250000 + revMo(co) * 2; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; s.ceo.rep = clamp(s.ceo.rep - 4, 0, 100); return `Regulators fined you ${fmt$(c)}.`; } return 'No enforcement action, for now.'; } }
       ] },
     { id: 'consent', w: 2, cond: (s, co) => co.ind === 'fintech' && revMo(co) > 100000, title: 'Regulators open an investigation',
       text: () => 'A state regulator alleges your overdraft and dispute practices harmed consumers.',
       choices: [
-        { label: 'Settle', hint: 'Pay restitution, change practices', fx: (s, co) => { const c = 200000 + revMo(co) * 1.5; co.cash -= c; co.acc.events += c; addFx(s, co, 'churn', 1.05, 6); return `You settled for ${fmt$(c)}.`; } },
-        { label: 'Fight in court', hint: '50/50 outcome, big legal bills', fx: (s, co) => { const legal = 300000; co.cash -= legal; co.acc.events += legal; if (rand(s) < 0.5) { const c = revMo(co) * 4; co.cash -= c; co.acc.events += c; s.ceo.rep = clamp(s.ceo.rep - 6, 0, 100); return `You lost: ${fmt$(c)} in penalties plus legal fees.`; } return 'You won. Legal fees were $300k.'; } }
+        { label: 'Settle', hint: 'Pay restitution, change practices', fx: (s, co) => { const c = 200000 + revMo(co) * 1.5; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; addFx(s, co, 'churn', 1.05, 6); return `You settled for ${fmt$(c)}.`; } },
+        { label: 'Fight in court', hint: '50/50 outcome, big legal bills', fx: (s, co) => { const legal = 300000; co.cash -= legal; co.acc.events += legal; co.acc.eventsCash += legal; if (rand(s) < 0.5) { const c = revMo(co) * 4; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; s.ceo.rep = clamp(s.ceo.rep - 6, 0, 100); return `You lost: ${fmt$(c)} in penalties plus legal fees.`; } return 'You won. Legal fees were $300k.'; } }
       ] },
     { id: 'methane', w: 2, cond: (s, co) => co.ind === 'oilgas' && co.facilities.length > 0, title: 'New methane and flaring rules',
       text: () => 'Regulators tighten flaring limits. Each operated well needs vapor-recovery equipment.',
       choices: [
-        { label: 'Retrofit now', hint: '$120k per operated well', fx: (s, co) => { const n = co.facilities.filter(f => facDef(co, f).staffed).length; const c = n * 120000; co.cash -= c; co.acc.events += c; return `Retrofits cost ${fmt$(c)}.`; } },
+        { label: 'Retrofit now', hint: '$120k per operated well', fx: (s, co) => { const n = co.facilities.filter(f => facDef(co, f).staffed).length; const c = n * 120000; co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; return `Retrofits cost ${fmt$(c)}.`; } },
         { label: 'Seek a waiver', hint: 'Likely fines, some shut-ins', fx: (s, co) => { addFx(s, co, 'capacity', 0.9, 6); return 'The waiver was denied; some wells are shut in for months.'; } }
       ] },
     { id: 'interconnect', w: 3, cond: (s, co) => ['power', 'datacenter'].includes(co.ind) && co.facilities.some(f => f.status === 'building' && facDef(co, f).capex > 5e6),
@@ -1822,13 +1834,13 @@
     { id: 'troll', w: 2, cond: (s, co) => ['saas', 'electronics', 'fintech', 'ev'].includes(co.ind) && revMo(co) > 100000, title: 'Patent lawsuit',
       text: () => 'A patent-assertion entity claims your product infringes a 2009 patent and offers to settle for $350k.',
       choices: [
-        { label: 'Settle', hint: '$350k', fx: (s, co) => { co.cash -= 350000; co.acc.events += 350000; return 'Settled.'; } },
-        { label: 'Fight', hint: '$200k in fees; 30% chance of a $2M judgment', fx: (s, co) => { co.cash -= 200000; co.acc.events += 200000; if (rand(s) < 0.3) { co.cash -= 2e6; co.acc.events += 2e6; return 'The jury found infringement. $2M judgment.'; } return 'The patent was invalidated.'; } }
+        { label: 'Settle', hint: '$350k', fx: (s, co) => { co.cash -= 350000; co.acc.events += 350000; co.acc.eventsCash += 350000; return 'Settled.'; } },
+        { label: 'Fight', hint: '$200k in fees; 30% chance of a $2M judgment', fx: (s, co) => { co.cash -= 200000; co.acc.events += 200000; co.acc.eventsCash += 200000; if (rand(s) < 0.3) { co.cash -= 2e6; co.acc.events += 2e6; co.acc.eventsCash += 2e6; return 'The jury found infringement. $2M judgment.'; } return 'The patent was invalidated.'; } }
       ] },
     { id: 'endorse', w: 2, cond: (s, co) => ['snacks', 'beverage', 'beauty', 'apparel', 'restaurants', 'electronics'].includes(co.ind) && revMo(co) > 40000, title: 'An athlete offers an endorsement deal',
       text: (s, co) => `A pro athlete with Hawaii roots and a big following offers a 12-month endorsement for ${fmt$(Math.max(120000, revMo(co) * 1.5))}.`,
       choices: [
-        { label: 'Sign the athlete', hint: 'Awareness boost in every market', fx: (s, co) => { const c = Math.max(120000, revMo(co) * 1.5); co.cash -= c; co.acc.events += c; co.regions.forEach(r => { if (r.unlocked) r.aw = Math.min(0.95, r.aw + 0.04 + r.aw * 0.15); }); return 'The campaign launched to strong reviews.'; } },
+        { label: 'Sign the athlete', hint: 'Awareness boost in every market', fx: (s, co) => { const c = Math.max(120000, revMo(co) * 1.5); co.cash -= c; co.acc.events += c; co.acc.eventsCash += c; co.regions.forEach(r => { if (r.unlocked) r.aw = Math.min(0.95, r.aw + 0.04 + r.aw * 0.15); }); return 'The campaign launched to strong reviews.'; } },
         { label: 'Pass', hint: '', fx: () => 'You passed.' }
       ] },
     { id: 'activist', w: 2, cond: (s, co) => co.public, title: 'An activist investor builds a stake',
@@ -1843,7 +1855,7 @@
     { id: 'restaurant_inspect', w: 2, cond: (s, co) => co.ind === 'restaurants' && co.facilities.length > 0, title: 'Health inspection flags one location',
       text: () => 'An inspector issued a yellow placard at one location for cold-holding violations.',
       choices: [
-        { label: 'Retrain staff and upgrade coolers', hint: '$40k per location (one location)', fx: (s, co) => { co.cash -= 40000; co.acc.events += 40000; return 'Re-inspection passed with a green placard.'; } },
+        { label: 'Retrain staff and upgrade coolers', hint: '$40k per location (one location)', fx: (s, co) => { co.cash -= 40000; co.acc.events += 40000; co.acc.eventsCash += 40000; return 'Re-inspection passed with a green placard.'; } },
         { label: 'Quick fix only', hint: 'Cheap; risk of a red placard', fx: (s, co) => { if (rand(s) < 0.35) { addFx(s, co, 'demand', 0.85, 1); co.regions[0].aw *= 0.9; return 'A red placard closed the location for a week and made the news.'; } return 'You passed re-inspection.'; } }
       ] }
   ];

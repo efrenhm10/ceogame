@@ -287,6 +287,7 @@
         <div class="stack">
           <div><div class="eyebrow">Month closed</div><h2>${GC.monthLabel(h.m)}: ${h.ni >= 0 ? 'profit of ' + f$(h.ni) : 'loss of ' + f$(-h.ni).replace(/[()]/g, '')}</h2>
           <p class="muted small" style="margin:4px 0 0">Revenue ${f$(h.rev)}${p ? ` (${h.rev >= p.rev ? '+' : ''}${pct(delta(h.rev, p.rev))})` : ''} · gross margin ${h.rev > 0 ? pct(h.gp / h.rev) : '—'} · cash ${f$(h.cash)} · ${h.heads} employees</p></div>
+          ${cashPanel(true)}
           ${alerts.length ? `<div class="alerts">${alerts.map(a => `<button class="alert ${a.sev}" data-act="tab" data-id="${a.tab}"><span class="ic">${a.sev === 'crit' ? '!!' : '!'}</span><span>${esc(a.text)}</span></button>`).join('')}</div>` : '<div class="note">No warnings this month. Operations ran clean.</div>'}
         </div>
         <div><div class="eyebrow" style="margin-bottom:6px">Economy</div>
@@ -761,21 +762,20 @@
     const R = rounds.find(r => r.r.id === roundSel);
     const amt = R ? Math.min(R.r.max, Math.max(R.r.min, U.raiseAmt || R.r.min)) : 0;
     return `<div class="stack">
+      ${cashPanel()}
       <section class="panel"><header><div><h2>Income statement</h2><p class="small muted">Negative figures in parentheses. Inventory costs hit the P&amp;L when goods are sold, not when bought.</p></div></header>
         ${H.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th></th>${colNames.map(n => `<th class="r">${n}</th>`).join('')}</tr></thead><tbody>${plRows(cols)}</tbody></table></div>` : '<div class="empty">Close a month to see your first P&amp;L.</div>'}
       </section>
       <div class="grid g2">
-        <section class="panel"><header><h3>Balance sheet</h3><span class="small muted">today</span></header><table class="t"><tbody>
-          <tr><td>Cash</td><td class="r num ${b.cash < 0 ? 'neg' : ''}">${f$(b.cash)}</td></tr>
-          <tr><td>Accounts receivable</td><td class="r num">${f$(b.ar)}</td></tr>
-          <tr><td>Inventory</td><td class="r num">${f$(b.inv)}</td></tr>
-          <tr><td>Plant, property &amp; equipment</td><td class="r num">${f$(b.ppe)}</td></tr>
-          <tr><td>Construction in progress</td><td class="r num">${f$(b.cip)}</td></tr>
-          <tr class="total"><td>Total assets</td><td class="r num">${f$(b.assets)}</td></tr>
-          <tr><td>Accounts payable</td><td class="r num">${f$(b.ap)}</td></tr>
-          <tr><td>Debt</td><td class="r num">${f$(b.debt)}</td></tr>
-          <tr class="total"><td>Shareholders' equity (book)</td><td class="r num ${b.equity < 0 ? 'neg' : ''}">${f$(b.equity)}</td></tr>
-          <tr><td>Tax-loss carryforward</td><td class="r num muted">${f$(co.nol)}</td></tr>
+        <section class="panel"><header><div><h3>Balance sheet</h3><p class="small muted">A snapshot of what the company owns and owes today. It shows where money is sitting, not where it went (that is the cash panel above).</p></div></header><table class="t"><tbody>
+          <tr class="sub"><td colspan="2" class="eyebrow" style="padding-left:8px">What you own</td></tr>
+          ${[['Cash in the bank', b.cash, ''], ['Money customers owe you', b.ar, 'Receivables: sales you made but have not collected'], ['Inventory', b.inv, 'Materials on hand and products waiting to sell'], ['Equipment & buildings', b.ppe, 'Sites you built, minus depreciation'], ['Under construction', b.cip, 'Installments paid on sites not finished yet']].map(([n, v, hint]) => `<tr><td><div class="name-cell"><span>${n}</span>${hint ? `<span class="muted">${hint}</span>` : ''}</div></td><td class="r num ${v < 0 ? 'neg' : ''}">${f$(v)}</td></tr>`).join('')}
+          <tr class="total"><td>Total</td><td class="r num">${f$(b.assets)}</td></tr>
+          <tr class="sub"><td colspan="2" class="eyebrow" style="padding-left:8px">What you owe</td></tr>
+          <tr><td><div class="name-cell"><span>Bills due to suppliers</span><span class="muted">Payables: invoices you will pay next month</span></div></td><td class="r num">${f$(b.ap)}</td></tr>
+          <tr><td>Loans</td><td class="r num">${f$(b.debt)}</td></tr>
+          <tr class="total"><td><div class="name-cell"><span>Owners' equity (on paper)</span><span class="muted">What is left for shareholders after debts</span></div></td><td class="r num ${b.equity < 0 ? 'neg' : ''}">${f$(b.equity)}</td></tr>
+          <tr><td><div class="name-cell"><span>Past losses you can deduct</span><span class="muted">Lowers future income tax</span></div></td><td class="r num muted">${f$(co.nol)}</td></tr>
         </tbody></table></section>
         <section class="panel"><header><h3>Valuation</h3><span class="small muted">what investors would pay today</span></header><table class="t"><tbody>
           <tr><td>Revenue run-rate</td><td class="r num">${f$(m.runRate)}</td></tr>
@@ -810,6 +810,94 @@
       </section>
     </div>`;
   }
+  // ---------- Cash flow in plain language ----------
+  const OUT_NAMES = {
+    payroll: ['Payroll', 'Salaries and benefits for everyone, including you'],
+    suppliers: ['Paying suppliers', 'Ingredients and materials (net-30 bills from last month, prepaid imports, rush orders)'],
+    contract: ['Contract manufacturing', 'Fees to co-packers and contract factories for each unit they make'],
+    sites: ['Sites & leases', 'Rent and running costs for plants, kitchens, trucks, aircraft and wells'],
+    energy: ['Electricity', 'Power for your own production sites'],
+    freight: ['Freight, fees & royalties', 'Shipping, broker and card fees, trade spend, royalties'],
+    marketing: ['Marketing', 'Your marketing plan'],
+    channels: ['Retail accounts & your shops', 'Account fees, store rent and staff, online store'],
+    overhead: ['Office, insurance & taxes', 'Office rent, insurance, software, gross-receipts taxes'],
+    oneTime: ['One-time costs', 'Hiring fees, severance, launches, slotting fees, market entry, events'],
+    capex: ['Construction & equipment', 'Installments on sites you are building'],
+    interest: ['Interest', 'Interest on your loans'],
+    principal: ['Loan repayments', 'Paying down what you borrowed'],
+    tax: ['Income tax', 'Federal and state income tax']
+  };
+  const IN_NAMES = { customers: ['Customers paid you', 'Cash collected from sales (some customers pay a month or two later)'], financing: ['Loans & investors', 'New borrowing and money raised'], other: ['Other', 'Grants, subsidies, sold assets'] };
+  function cashBars(h) {
+    const cf = h.cf;
+    const rows = [...Object.entries(cf.ins).map(([k, v]) => ['in', k, v]), ...Object.entries(cf.outs).map(([k, v]) => ['out', k, v])].filter(r => Math.abs(r[2]) >= 1);
+    const max = Math.max(1, ...rows.map(r => Math.abs(r[2])));
+    rows.sort((a, b) => (a[0] === b[0] ? Math.abs(b[2]) - Math.abs(a[2]) : a[0] === 'in' ? -1 : 1));
+    return `<table class="t cash"><tbody>${rows.map(([dir, k, v]) => { const n = (dir === 'in' ? IN_NAMES : OUT_NAMES)[k];
+      return `<tr><td><div class="name-cell"><b>${n[0]}</b><span class="muted">${n[1]}</span></div></td><td style="width:38%"><div class="cashbar ${dir}"><i style="width:${(Math.abs(v) / max * 100).toFixed(1)}%"></i></div></td><td class="r num ${dir === 'in' ? 'pos' : ''}">${dir === 'in' ? '+' : '−'}${f$(Math.abs(v))}</td></tr>`; }).join('')}
+      ${Math.abs(cf.other) > 1 ? `<tr><td class="muted">Other adjustments</td><td></td><td class="r num">${f$(cf.other)}</td></tr>` : ''}
+      <tr class="total"><td>Change in cash</td><td></td><td class="r num ${signCls(cf.end - cf.start)}">${cf.end - cf.start >= 0 ? '+' : ''}${f$(cf.end - cf.start)}</td></tr></tbody></table>`;
+  }
+  function bridge(h, p0) {
+    const cf = h.cf;
+    const prevAr = p0 ? p0.ar : 0, prevInv = p0 ? p0.inv : 0, prevAp = p0 ? p0.ap : 0;
+    const items = [
+      ['Net income (profit or loss)', h.ni, 'What the P&L says you earned.'],
+      ['Depreciation & write-downs', h.dep + Math.max(0, h.opOne - (cf.outs.oneTime || 0)), 'Costs on the P&L that are not cash this month.'],
+      ['Customers who have not paid yet', -(h.ar - prevAr), 'Retail chains pay 30–60 days later. Growth ties up cash here.'],
+      ['Inventory you bought but have not sold', -(h.inv - prevInv), 'Materials on hand and finished goods waiting to sell.'],
+      ['Bills you have not paid yet', h.ap - prevAp, 'Supplier invoices due next month.'],
+      ['Construction & equipment', -cf.outs.capex, 'Building sites is not an expense on the P&L, but it is cash out the door.'],
+      ['Loan repayments', -cf.outs.principal, 'Principal is not an expense either.'],
+      ['New loans & investment', cf.ins.financing, 'Borrowing and fundraising add cash, not profit.']
+    ];
+    const sum = items.reduce((a, x) => a + x[1], 0);
+    const resid = (cf.end - cf.start) - sum;
+    if (Math.abs(resid) > 1) items.push(['Other (asset sales, timing)', resid, '']);
+    return `<table class="t"><tbody>${items.filter((x, i) => i === 0 || Math.abs(x[1]) >= 1).map(([n, v, hint], i) => `<tr class="${i === 0 ? 'em' : ''}"><td><div class="name-cell"><span>${n}</span>${hint ? `<span class="muted">${hint}</span>` : ''}</div></td><td class="r num ${signCls(v)}">${v >= 0 ? '+' : ''}${f$(v)}</td></tr>`).join('')}
+      <tr class="total"><td>Change in cash</td><td class="r num ${signCls(cf.end - cf.start)}">${cf.end - cf.start >= 0 ? '+' : ''}${f$(cf.end - cf.start)}</td></tr></tbody></table>`;
+  }
+  // one plain sentence on what is driving the burn
+  function diagnosis(h, p0) {
+    if (!h || !h.cf) return '';
+    const cf = h.cf, rev = h.rev;
+    const outs = Object.entries(cf.outs).filter(([k]) => k !== 'principal').sort((a, b) => b[1] - a[1]);
+    const [bk, bv] = outs[0] || ['', 0];
+    const delta = cf.end - cf.start - cf.ins.financing;
+    const parts = [];
+    if (delta < 0) parts.push(`Before any new loans or investment, you burned <b>${f$(-delta).replace(/[()]/g, '')}</b> last month.`);
+    else parts.push(`Operations added <b>${f$(delta)}</b> of cash last month.`);
+    if (bv > 0) parts.push(`Your biggest cost is <b>${OUT_NAMES[bk][0].toLowerCase()}</b> at ${f$(bv)}${rev > 0 ? ` (${pct(bv / rev)} of revenue)` : ''}.`);
+    const tips = {
+      payroll: 'Check the People tab for teams above the recommended size, and your own salary.',
+      suppliers: 'Check ingredient grades, months of cover (stock you are holding), and overseas suppliers you prepay.',
+      contract: 'Contract manufacturers charge per unit; at your volume your own site may be cheaper.',
+      sites: 'You may have more capacity than you use. Check utilization on Operations.',
+      marketing: 'See which channels are saturated on the Markets tab.',
+      channels: 'Shops and account fees: close stores that do not pay for themselves.',
+      capex: 'Construction is a one-off; consider an equipment loan to spread it out.',
+      oneTime: 'Mostly one-off: hiring fees, launches, slotting.'
+    };
+    if (tips[bk]) parts.push(tips[bk]);
+    const arUp = h.ar - (p0 ? p0.ar : 0), invUp = h.inv - (p0 ? p0.inv : 0);
+    if (h.ni > 0 && delta < 0) parts.push(`You are profitable on paper but short on cash because ${arUp > invUp ? 'customers have not paid yet' : 'inventory is piling up'}.`);
+    return parts.join(' ');
+  }
+  function cashPanel(compact) {
+    const co = S.co, h = last(), p0 = prev();
+    if (!h || !h.cf) return '';
+    if (compact) {
+      const outs = Object.entries(h.cf.outs).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const max = Math.max(1, ...outs.map(x => x[1]));
+      return `<div><div class="eyebrow" style="margin-bottom:6px">Where your cash went</div><p class="small" style="margin:0 0 8px">${diagnosis(h, p0)}</p>
+        <table class="t cash"><tbody>${outs.map(([k, v]) => `<tr><td>${OUT_NAMES[k][0]}</td><td style="width:40%"><div class="cashbar out"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></td><td class="r num">${f$(v)}</td></tr>`).join('')}</tbody></table>
+        <button class="btn sm" style="margin-top:8px" data-act="tab" data-id="finance">Full cash breakdown</button></div>`;
+    }
+    return `<section class="panel"><header><div><h2>Where your cash went · ${GC.monthLabel(h.m)}</h2><p class="small" style="margin-top:4px;max-width:90ch">${diagnosis(h, p0)}</p></div></header>
+      <div class="grid g2"><div><div class="eyebrow" style="margin-bottom:6px">Every dollar in and out</div>${cashBars(h)}</div>
+      <div><div class="eyebrow" style="margin-bottom:6px">Why cash is not the same as profit</div>${bridge(h, p0)}</div></div></section>`;
+  }
+
   function roundReq(id) {
     return { ff: 'Anyone will listen, once. Small checks.', angel: 'Any stage. Local angels and syndicates.', seed: 'Needs a $300K revenue run-rate or 200 R&D points.', a: 'Needs a $2M run-rate growing 8%+ a quarter.', b: 'Needs a $10M run-rate growing 5%+ a quarter.', c: 'Needs a $40M run-rate.', pe: 'Needs $5M+ EBITDA run-rate.', ipo: 'Needs a $150M run-rate and either profits or 40%+ annual growth.' }[id] || '';
   }

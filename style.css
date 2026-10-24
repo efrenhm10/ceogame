@@ -262,3 +262,9 @@ table.t .em td { font-weight: 700; }
 .career-hero .big { font-family: var(--f-mono); font-size: 30px; font-weight: 600; }
 .offer { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
 .offer .co { font-family: var(--f-display); font-stretch: 112%; font-weight: 800; font-size: 17px; }
+
+/* cash-flow bars: inflows in the semantic positive hue, outflows in the neutral bar hue */
+.cashbar { height: 8px; border-radius: 4px; background: var(--line-2); overflow: hidden; }
+.cashbar > i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--bar-2); }
+.cashbar.in > i { background: var(--pos); }
+table.t.cash td { padding-top: 6px; padding-bottom: 6px; }
